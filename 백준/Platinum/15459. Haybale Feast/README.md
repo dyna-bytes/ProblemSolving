@@ -26,3 +26,24 @@
 
  <p>Please output the minimum spiciness in a single course meal that satisfies the minimum flavor requirement. There will always be at least one single-course meal that satisfies the flavor requirement.</p>
 
+### 노트
+
+1. 유니온파인드 풀이.
+
+  정답이 연속되어야 있어야 한다는 점에 착안하여, 타겟 인덱스 양 옆이 타겟보다 덜 맵다면 하나로 union 한다.
+
+  매운맛이 가장 작은 인덱스부터 탐색을 하며, union 할 때 parent 배열에 집합의 크기가 아니라 flavor의 합을 저장한다.
+
+  한 집합의 루트 노드의 *flavor 합 >= M* 을 만족하는 순간, 현재의 타겟 인덱스에 해당하는 매운맛을 출력한다.
+
+  매운맛이 가장 작은 값부터 탐색을 시작했기에, 출력된 매운맛은 ** 제약 조건 (sum(flavor) >= M)**을 만족하는 **연속인 열** 중에서 **가장 큰 매운맛**이다.
+
+----
+2. 이분탐색 풀이.
+  Parametric search로 조건을 만족하는 매운맛 허들을 찾기위해 이분탐색한다. 아슬아슬하게 조건을 만족하는 매운맛 허들이 곧 최소 매운맛이다.
+ 
+ * 조건1. 연속인 열일 것
+ * 조건2. flavor의 합이 M 이상일 것
+ 
+ * 문제: 조건을 만족하는 열의 최대 매운맛 중 최솟값을 찾을 것.
+ * 조건을 확인하는 함수를 Maximum Subarray(최대 부분배열합) 문제와 비슷하게 구현한다.
