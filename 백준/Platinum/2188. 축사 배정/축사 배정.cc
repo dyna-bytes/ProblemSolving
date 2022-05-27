@@ -90,6 +90,10 @@ struct NetworkFlow{
                 }
             }
 
+            // for(int node = E; node != S; node = prev[node])
+            //     cout << node << "<-";
+            // cout << "0\n" << endl;
+
             // if there is no path to reach the end, done.
             if(prev[E] == -1) break;
 
@@ -116,12 +120,12 @@ int main(){
     int S = 0, E = N + M + 1;
     for(int to = 1; to <= N; to++){
         Graph.addEdge(S, to, 1);
-        Graph.addEdge(to, S, 0);
+        // Graph.addEdge(to, S, 0);
     }
     
     for(int from = N + 1; from <= N + M; from++){
         Graph.addEdge(from, E, 1);
-        Graph.addEdge(E, from, 0);
+        // Graph.addEdge(E, from, 0);
     }
 
     for(int from = 1; from <= N; from++){
@@ -130,7 +134,7 @@ int main(){
             int to; cin >> to;
             to += N;
             Graph.addEdge(from, to, 10);
-            Graph.addEdge(to, from, 0);
+            // Graph.addEdge(to, from, 0);
         }   
     }
     // Graph.debugAdj();
