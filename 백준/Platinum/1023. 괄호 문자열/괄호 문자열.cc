@@ -34,33 +34,40 @@ ll notParenString(int pos, int sole){
 }
 
 /**
- * @brief 무지성함수: (((( 부터 )))) 까지 모든 경우를 생성. 괄호 문자열을 포함하여 생성함.
+ * @brief 무지성함수: "(((...(" 부터 ")))...)" 까지 모든 경우를 생성. 괄호 문자열을 포함하여 생성함.
+ * 
  * 앞에 괄호ㄴㄴ가 있을때는 뒤에 괄호 문자열이 오더라도 상관 없으므로, 앞에 괄호 ㄴㄴ가 있을 때만 사용 가능.
  * 앞에 괄호ㄴㄴ가 있는 조건: 전체 문자열의 길이가 홀수라면, 짝수 길이의 괄호 문자열이 오더라도
  * 항상 홀수 길이의 괄호ㄴㄴ 문자열이 남아 있으므로 전체 문자열에는 괄호ㄴㄴ문자열이 남아있음.
  */
 void trivial(int pos, ll k){
     if(pos == N) return;
-    ll pivot = pow(2, N-pos-1);
+    ll pivot = pow(2, N-pos-1); // 다음 자리부터 나올 수 있는 모든 경우의 수(괄호 문자열 포함하여 계산)
     if(k >= pivot){
         ans[pos] = ')';
-        k -= pivot;
-    }else ans[pos] = '(';
-    trivial(pos+1, k);
+        trivial(pos+1, k-pivot);
+    }else{ 
+        ans[pos] = '(';
+        trivial(pos+1, k);
+    }
 }
 
 /**
  * @brief 지성함수: 괄호ㄴㄴ문자열을 생성함.
+ * 
  * pivot = 현재 자리에 '('을 썼을 때, 나올 수 있는 괄호ㄴㄴ문자열의 경우의 수
  * k >= pivot이라면 현재 자리에 ')'를 써야 함.
  * 근데 현재까지 여는 괄호가 모두 상쇄되거나 또는 닫는 괄호만 써서 sole = 0이라면
- * 위에서 현재 자리에 닫는 괄호 ')'를 써서 괄호ㄴㄴ 문자열을 이미 만들었으므로, 그 뒤에 괄호 문자열을 포함한 모든
- * 경우가 오더라도 상관 없음. 따라서 무지성 함수를 호출함. 
+ * 위에서 현재 자리에 닫는 괄호 ')'를 써서 괄호ㄴㄴ 문자열을 이미 만들었으므로, 
+ * 그 뒤에 괄호 문자열을 포함한 모든 경우가 오더라도 상관 없음. 
+ * 따라서 무지성 함수를 호출함. 
  */
 void notTrival(int pos, int sole, ll k){
     if(pos == N) return;
-    if(N-pos == sole){
-        // N/2 = N-pos = sole 
+    if(N-pos == sole){ // 남은 자리의 개수와 현재까지 열어둔 괄호의 개수가 같을 때
+        // 닫는 괄호가 sole개 등장하지만 않는다면, 현재까지 열어둔 괄호들 때문에 항상 괄호ㄴㄴ 문자열임이 보장된다.
+        // 따라서 모든 괄호 문자열과 괄호ㄴㄴ문자열을 포함하여 남은 자리들을 채워야한다.(뒤에 남은 N-pos자리에 괄호문자열이 등장해도 상관없음)
+        // 게다가, 직관에 의해 k < 2**(N-pos) - 1 임이 보장되므로 k == 2**(N-pos) - 1 인 마지막 경우, sole개의 닫는 문자열 ")))...)" 이 등장하진 않는다.
         trivial(pos, k);
         return;
     }
@@ -68,7 +75,7 @@ void notTrival(int pos, int sole, ll k){
     ll pivot = notParenString(pos+1, sole+1);
     if(k >= pivot){
         ans[pos] = ')';
-        if(sole == 0) trivial(pos+1, k-pivot);
+        if(sole == 0) trivial(pos+1, k-pivot); // 방금의 ans[pos] = ')'으로 괄호 ㄴㄴ가 이미 생성됨. 따라서 뒤에 괄호문자열이 와도 괜찮음.
         else notTrival(pos+1, sole-1, k-pivot);
     }else{
         ans[pos] = '(';
