@@ -77,11 +77,14 @@ int main(){
     int index = 1;
     cout << "<";
     for(int i = 0; i < N; i++){
-        int size = N - i;
-        index += K -1;
-
-        if (index % size == 0) index = size;
-        else if (index > size) index %= size;
+        int survivals = N - i; // 남은 사람 수
+        index += K - 1; // 이전 사람을 제거했으므로, K-1번 째 사람을 찾아야 
+        // "이전에 제거한 사람을 포함해서 K번 째" 사람을 찾을 수 있음
+        
+        // 원순열 배열을 풀어헤쳐서, 길이가 N인 여러 개의 배열이 연속적으로 이어져있다고 생각해보자.
+        // index는 그냥 다음 배열로 계속 늘려나가되, 도착한 위치에 남아있는 사람 수에 맞춰 보정을 해줌.
+        // (이미 죽은 사람은 건너뛰어야 하므로)
+        index = (index % survivals == 0)? survivals : index % survivals; 
 
         ret = tree.Kth(index);
         tree.insert(ret, -1);
