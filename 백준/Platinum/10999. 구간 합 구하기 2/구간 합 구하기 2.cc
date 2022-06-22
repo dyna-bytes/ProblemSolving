@@ -12,10 +12,9 @@ struct SegTree{
     ll size;
     vector<ll> tree, lazy;
     SegTree(ll n){
-        // size = 1;
-        // while(size < n) size *= 2;
-        // size *= 2;
-        size = 1 << 22;
+        size = 1;
+        while(size < n) size *= 2;
+        size *= 2;
         tree.resize(size);
         lazy.resize(size);
     }
@@ -75,7 +74,7 @@ int main(){
     cin.tie(NULL); cout.tie(NULL);
 
     ll N, M, K; cin >> N >> M >> K;
-    SegTree ST(1 << 21 + 1);
+    SegTree ST(N);
     for(ll i = 0; i < N; i++)
         cin >> ST.tree[i + ST.size/2];
     ST.construct();
