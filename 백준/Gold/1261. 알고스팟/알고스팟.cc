@@ -1,66 +1,84 @@
-#include <iostream>
-#include <vector>
-#include <algorithm>
-#include <queue>
-#include <stack>
+#include <bits/stdc++.h>
 using namespace std;
 #define debug(x)  std::cout << "[Debug] " << #x << " is " << x << '\n'
+#define debugVec(v) do { \
+    std::cout << "[Debug] ["; \
+    for(int i = 0; i < ((v.size())-1); i++) std::cout << v[i] << "|"; \
+    std::cout << v[((v.size())-1)] << "]\n"; \
+} while(0)
+#define debugV2D(v) do { \
+    std::cout << "[Debug] [\n"; \
+    for(int y = 0; y < (v.size()); y++) { \
+        std::cout << "  ["; \
+        for(int x = 0; x < ((v[y].size())-1); x++) \
+            std::cout << v[y][x] << "|"; \
+        std::cout << v[y][(v[y].size())-1] << "]\n"; \
+    } \
+    std::cout << "]\n"; \
+} while(0)
 #define endl '\n'
 typedef long long ll;
-typedef pair<int, int> pos;
-typedef pair<int, pos> node;
-const int INF = 1000000000;
-const int dy[] = {-1, 1, 0, 0}, dx[] = {0, 0, -1, 1};
+typedef pair<int, int> P;
+typedef pair<int, P> node;
+const int dy[4] = {-1, 1, 0, 0}, dx[4] = {0, 0, -1, 1};
 
-struct Dijkstra{
+struct BFS_01{
     int Y, X;
     vector<vector<int>> room;
-    vector<vector<int>> sum;
-    Dijkstra(int y, int x){
+    vector<vector<int>> visited;
+    BFS_01(int y, int x){
         Y = y, X = x;
         room.resize(Y+1, vector<int>(X+1));
-        sum.resize(Y+1, vector<int>(X+1, INF));
+        visited.resize(Y+1, vector<int>(X+1));
+    } 
+    bool inRange(int y, int x){
+        return (y >= 0 && y < Y && x >= 0 && x < X);
     }
-    bool inRange(int y, int x){ return y >= 0 && y < Y && x >= 0 && x < X; }
     int run(){
-        vector<vector<bool>> visited(Y+1, vector<bool> (X+1));
-        priority_queue<node, vector<node>, greater<node>> pq;
+        deque<node> dq;
+        dq.push_back({0, {0, 0}});
+        visited[0][0] = true;
 
-        sum[0][0] = 0;
-        pq.push({sum[0][0], {0, 0}});
-        while(!pq.empty()){
-            pos curr = pq.top().second; pq.pop();
-            int y = curr.first, x = curr.second;
+        while(!dq.empty()){
+            node curr = dq.front();
+            dq.pop_front();
 
-            if(visited[y][x]) continue;
-            visited[y][x] = true;
+            int sum = curr.first;
+            P pos = curr.second;
+            int y = pos.first, x = pos.second;
 
+            if (y == Y-1 && x == X-1) return sum;
+            
             for(int d = 0; d < 4; d++){
                 int ny = y + dy[d], nx = x + dx[d];
-                if(!inRange(ny, nx)) continue;
-                if(sum[ny][nx] > sum[y][x] + room[ny][nx]){
-                    sum[ny][nx] = sum[y][x] + room[ny][nx];
-                    pq.push({sum[ny][nx], {ny, nx}});
+
+                if (!inRange(ny, nx)) continue;
+                if (visited[ny][nx]) continue;
+                if (room[ny][nx] == 0){ // room
+                    dq.push_front({sum, {ny, nx}}); // higher priority
+                    visited[ny][nx] = true;
+                }
+                else if (room[ny][nx] == 1){ // wall
+                    dq.push_back({sum+1, {ny, nx}}); // lower priority
+                    visited[ny][nx] = true;
                 }
             }
         }
-        return sum[Y-1][X-1];
+        return -1;
     }
 };
 int main(){
     ios::sync_with_stdio(false);
     cin.tie(NULL); cout.tie(NULL);
-
-    int Y, X; cin >> X >> Y; // 문제의 배열을 transpose하여 사용하기로 함
-    Dijkstra Graph(Y, X);
-
+    
+    int X, Y; cin >> X >> Y;
+    BFS_01 bfs(Y, X);
     for(int y = 0; y < Y; y++){
         string inp; cin >> inp;
-        for(int x = 0; x < X; x++){
-            Graph.room[y][x] = inp[x] - '0';
-        }
+        for(int x = 0; x < X; x++)
+            bfs.room[y][x] = inp[x] - '0';
     }
-    cout << Graph.run();
-    
+    cout << bfs.run();
+
     return 0;
 }
