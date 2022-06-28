@@ -81,13 +81,13 @@ struct LazyProp{
         int mid = (ns + ne)/2;
         return sum_(node*2, ns, mid, s, e) + sum_(node*2+1, mid, ne, s, e);
     }
+    
 
     /** -------- non-recursive version -------- **/
     void apply(ll idx, ll val, ll range){
         if (idx < size/2) lazy[idx] += val;
         tree[idx] += val * range;
     }
-
     // build up in range [s, e]
     void build(ll s, ll e){
         ll l = s + size/2;
@@ -102,7 +102,6 @@ struct LazyProp{
                 // else tree[i] += lazy[i] * range; // use if needed
         }
     }
-
     // push down in range [s, e]
     void propagate(ll s, ll e) {
         ll l = s + size/2;
@@ -121,7 +120,6 @@ struct LazyProp{
             range /= 2;
         }
     }
-
     // add val to the interval [s, e]
     void add(ll s, ll e, ll val) {
         if (val == 0) return;
@@ -155,7 +153,7 @@ struct LazyProp{
         return res;
     }
 private:
-    int log2(int n){
+    int log2(int n){ // same with sizeof(int) * 8 - __builtin_clz(size/2);
         int ret = 0;
         while(n > (1 << ret)) ret++;
         return ret;
