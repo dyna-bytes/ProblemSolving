@@ -1,95 +1,142 @@
-#include <iostream>
-#include <vector>
-#include <algorithm>
-#include <queue>
-#include <stack>
+#include <bits/stdc++.h>
 using namespace std;
 #define debug(x)  std::cout << "[Debug] " << #x << " is " << x << '\n'
+#define debugVec(v) do { \
+    std::cout << "[Debug] ["; \
+    for(ll i = 0; i < ((v.size())-1); i++) std::cout << v[i] << "|"; \
+    std::cout << v[((v.size())-1)] << "]\n"; \
+} while(0)
+#define debugV2D(v) do { \
+    std::cout << "[Debug] [\n"; \
+    for(ll y = 0; y < (v.size()); y++) { \
+        std::cout << "  ["; \
+        for(ll x = 0; x < ((v[y].size())-1); x++) \
+            std::cout << v[y][x] << "|"; \
+        std::cout << v[y][(v[y].size())-1] << "]\n"; \
+    } \
+    std::cout << "]\n"; \
+} while(0)
 #define endl '\n'
 typedef long long ll;
 
-struct SegTree{
+struct LazyProp{
     ll size;
-    vector<ll> tree, lazy;
-    SegTree(ll n){
+    vector<ll> lazy, tree;
+    LazyProp(ll n){
         size = 1;
         while(size < n) size *= 2;
         size *= 2;
-        tree.resize(size);
-        lazy.resize(size);
+        lazy.resize(size + 1);
+        tree.resize(size + 1);
     }
-    void construct(){
-        for(ll i = size/2-1; i > 0; i--)
-            tree[i] = tree[i*2] + tree[i*2+1];
-    }
-    
-    // 구간 [ns, ne)인 node의 lazy 값을 propagate
-    void propagate(ll node, ll ns, ll ne){
-        if (lazy[node] != 0) { // lazy 값이 존재하면 실행
-            if (node < size/2) { // 리프 노드가 아니라면 자식들에게 lazy 미룸
-                lazy[node*2] += lazy[node];
-                lazy[node*2 + 1] += lazy[node];
-            } 
 
-            // 자신에 해당하는 lazy * 구간 값을 더함
-            tree[node] += lazy[node] * (ne - ns);
-            lazy[node] = 0;
+    void calc(ll idx, ll range){
+        if (lazy[idx] == 0) tree[idx] = tree[idx*2] + tree[idx*2+1];
+        // else tree[idx] += lazy[idx] * range;
+    }
+
+    void apply(ll idx, ll val, ll range){
+        tree[idx] += val * range;
+        if (idx < size/2) lazy[idx] += val;
+    }
+
+    void build(ll l, ll r){
+        ll range = 2;
+        for (l += size/2, r += (size/2 - 1); l > 1; range *= 2) {
+            l /= 2, r /= 2;
+            for (ll i = r; i >= l; i--) calc(i, range);
         }
     }
 
-    // 구간 [s, e)에 k를 더함
-    void add(ll s, ll e, ll k){ add(s, e, k, 1, 0, size/2); }
-    void add(ll s, ll e, ll k, ll node, ll ns, ll ne){
-        // 일단 propagate
-        propagate(node, ns, ne);
-
-        if (e <= ns || ne <= s) return;
-        if (s <= ns && ne <= e) { // 현재 노드가 구간에 완전히 포함되면
-            lazy[node] += k; // lazy 값 부여 후 propagate
-            propagate(node, ns, ne);
-            return;
+    void push(ll l, ll r) {
+        ll h = sizeof(int) * 8 - __builtin_clz(size/2);
+        ll range = 1 << (h-1);
+        for (l += size/2, r += (size/2 - 1); h > 0; h--, range /= 2){
+            for (ll i = l >> h; i <= (r >> h); i++){
+                if (lazy[i]) {
+                    apply(i*2, lazy[i], range);
+                    apply(i*2+1, lazy[i], range);
+                    lazy[i] = 0;
+                }
+            }
         }
-
-        ll mid = (ns + ne)/2;
-        add(s, e, k, node*2, ns, mid);
-        add(s, e, k, node*2+1, mid, ne);
-        tree[node] = tree[node*2] + tree[node*2 + 1];
     }
 
-    // 구간 [s, e)의 합
-    ll sum(ll s, ll e){ return sum(s, e, 1, 0, size/2); }
-    ll sum(ll s, ll e, ll node, ll ns, ll ne){
-        // 일단 propagate
-        propagate(node, ns, ne);
+    void modify(ll l, ll r, ll val) {
+        if (val == 0) return;
+        push(l, l+1);
+        push(r-1, r);
+        // debug("After push");
+        // debugVec(lazy);
+        // debugVec(tree);
 
-        if (e <= ns || ne <= s) return 0;
-        if (s <= ns && ne <= e) return tree[node];
-        
-        ll mid = (ns + ne)/2;
-        return sum(s, e, node*2, ns, mid) + sum(s, e, node*2+1, mid, ne);
+        ll L = l, R = r, range = 1;
+        for (l += size/2, r += size/2; l < r; l /= 2, r /= 2, range *= 2) {
+            if (l&1) apply(l++, val, range);
+            if (r&1) apply(--r, val, range);
+        }
+
+        // debug("After apply");
+        // debugVec(lazy);
+        // debugVec(tree);
+
+        build(L, L+1);
+        build(R-1, R);
+
+        // debug("After build");
+        // debugVec(lazy);
+        // debugVec(tree);
+    }
+
+    ll query(ll l, ll r) {
+        push(l, l+1);
+        push(r-1, r);
+        ll res = 0;
+        for (l += size/2, r += size/2; l < r; l /= 2, r /= 2) {
+            if (l&1) res += tree[l++];
+            if (r&1) res += tree[--r];
+        }
+        return res;
+    }
+
+private:
+    ll log2(ll n){
+        ll ret = 0;
+        while(n > (1 << ret)) ret++;
+        return ret;
     }
 };
-int main(){
+
+int main(){    
     ios::sync_with_stdio(false);
     cin.tie(NULL); cout.tie(NULL);
 
-    ll N, M, K; cin >> N >> M >> K;
-    SegTree ST(N);
-    for(ll i = 0; i < N; i++)
-        cin >> ST.tree[i + ST.size/2];
-    ST.construct();
+    ll N, M, K;
+    cin >> N >> M >> K;
+    LazyProp ST(N);
+    
+    for(ll i=0; i<N; i++){
+        ll val; cin >> val;
+        // ST.modify(i, i+1, val);
+        ST.tree[i + ST.size/2] = val;
+    }
+    ST.build(0, N);
 
-    for(ll i = 0; i < M+K; i++){
+    // debugVec(ST.lazy);
+    // debugVec(ST.tree);
+ 
+    // 쿼리 처리
+    for(ll i=0; i<M+K; i++){
         ll a, b, c, d;
         cin >> a;
-        if (a == 1) {
+        if(a == 1){
             cin >> b >> c >> d;
-            ST.add(b-1, c, d);
-        } else {
+            ST.modify(b-1, c, d);
+        }
+        else{
             cin >> b >> c;
-            cout << ST.sum(b-1, c) << endl;
+            cout << ST.query(b-1, c) << endl;
         }
     }
-    
     return 0;
 }
