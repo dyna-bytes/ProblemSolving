@@ -33,7 +33,7 @@ struct SegTree{
         for(int i = size/2-1; i > 0; i--)
             tree[i] = tree[i*2] + tree[i*2+1];
     }
-    /* -- non-recursive version -- */
+    /** -------- non-recursive version -------- **/
     void insert(int idx, int val){
         idx += size/2; // add correction term to index
         
@@ -57,8 +57,9 @@ struct SegTree{
         }
         return ret;
     }
+    
 
-    /* -- recursive version -- */
+    /** -------- recursive version -------- **/
     void insert_(int idx, int val){ insert_(1, 0, size/2, idx, val); }
     void insert_(int node, int s, int e, int idx, int val){
         if (idx < s || e <= idx) return; // iff idx ∈ [s, e)
