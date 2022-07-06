@@ -1,15 +1,24 @@
-#include <iostream>
-#include <vector>
-#include <algorithm>
-#include <queue>
-#include <stack>
-#include <climits>
+#include <bits/stdc++.h>
 using namespace std;
 #define debug(x)  std::cout << "[Debug] " << #x << " is " << x << '\n'
+#define debugVec(v) do { \
+    std::cout << "[Debug] ["; \
+    for(int i = 0; i < ((v.size())-1); i++) std::cout << v[i] << "|"; \
+    std::cout << v[((v.size())-1)] << "]\n"; \
+} while(0)
+#define debugV2D(v) do { \
+    std::cout << "[Debug] [\n"; \
+    for(int y = 0; y < (v.size()); y++) { \
+        std::cout << "  ["; \
+        for(int x = 0; x < ((v[y].size())-1); x++) \
+            std::cout << v[y][x] << "|"; \
+        std::cout << v[y][(v[y].size())-1] << "]\n"; \
+    } \
+    std::cout << "]\n"; \
+} while(0)
 #define endl '\n'
 typedef long long ll;
-
-// Edmonds-Karp algorithm
+typedef pair<int, int> P;
 const int INF = 1e9;
 
 struct Edge{
@@ -31,6 +40,7 @@ struct Edge{
     }
 };
 
+// Edmonds-Karp algorithm
 struct NetworkFlow{
     int N;
     vector<vector<Edge*>> adj;
@@ -93,11 +103,14 @@ struct NetworkFlow{
     }
 
     void debugAdj(){
-        for(int node = 0; node < adj.size(); node++){
-            for(int next = 0; next < adj[node].size(); next++){
-                cout << "(" << node << ", " << adj[node][next]->to << ") ";
+        cout << endl << "[DebugAdj] : [" << endl;
+        for(int curr = 0; curr < adj.size(); curr++){
+            cout << "[" << curr << "] -> [";
+            for(int next = 0; next < adj[curr].size(); next++){
+                cout << next;
+                if (next != adj[curr].size()-1) cout << "|";
             }
-            cout << endl;
+            cout << "]" << endl;
         }
     }
 };
@@ -116,7 +129,7 @@ int main(){
         Graph.addEdge(from, to, 1); // capa가 1인 단방향 간선 추가
     }
 
+    Graph.debugAdj();
     cout << Graph.run();
-    
     return 0;
 }
