@@ -20,49 +20,51 @@ using namespace std;
 typedef long long ll;
 typedef pair<int, int> P;
 
-/**
- * @brief 누적학 + dp(경우의 수)
- * 
- * 누적합 = n*division인 곳을 다시 방문했다는 것은 
- * 이전에 누적합이 n*division 이었던 곳과 현재 누적합이 n*division 인 곳 사이에
- * 누적합이 0인 세트가 존재함을 의미한다.
- * 
- * 이 세트는 수열을 각 합이 division인 n개의 덩어리로 구분할 수 있는 경우의 수에 영향을 미치지 않으며,
- * 합이 n*division인 1개의 덩어리로 구분할 수 있는 경우의 수에도 영향을 미치지 않는다.
- * (한편 이때 합이 n*division인 1개의 덩어리에는 이전에 이 덩어리를 각 n개의 덩어리로 쪼갤 수 있는 경우의 수가 담겨있다.)
- */
+int N;
+ll division;
+vector<ll> prefix_sum;
+vector<vector<ll>> dp;
+
+// 현재 idx까지 cnt개의 빗금을 쳤을 때, 4개의 분할을 만들 수 있는 경우의 수
+ll f(int idx, int cnt) {
+    ll& ret = dp[idx][cnt];
+    if (ret != -1) return ret;
+    if (idx == N) return ret = 0;
+    if (cnt == 3) { // 3개의 빗금을 쳤을 때
+        if (idx < N) return ret = 1; // 유효한 분할 영역인 경우
+        else return ret = 0; // idx >= N 이면 3번째 빗금을 쳐도 의미가 없음.
+    }
+    
+    ret = 0;
+    // 현재 인덱스에서 분할을 시도하거나
+    if (prefix_sum[idx] == (cnt + 1)*division) 
+        ret = f(idx+1, cnt+1);
+    // 시도하지 않거나
+    ret += f(idx+1, cnt);
+    return ret;
+}
 
 int main(){
     ios::sync_with_stdio(false);
     cin.tie(NULL); cout.tie(NULL);
     
-    int N; cin >> N;
-    vector<ll> prefix_sum(N+1); // one base index
+    cin >> N;
+    prefix_sum.resize(N); // zero base index
+    dp.resize(N+1, vector<ll>(4, -1));
 
-    for (int i = 0; i < N; i++) {
+    cin >> prefix_sum[0];
+    for (int i = 1; i < N; i++) {
         ll inp; cin >> inp;
-        prefix_sum[i+1] = prefix_sum[i] + inp;
+        prefix_sum[i] = prefix_sum[i-1] + inp;
     }
 
-    if (prefix_sum[N] % 4) {
+    if (prefix_sum[N-1] % 4) {
         cout << 0;
         return 0;
     }
 
-    ll division = prefix_sum[N] / 4;
-    vector<ll> dp = {1, 0, 0, 0};
-    // dp[i]: 빗금을 i개 칠 수 있는 경우의 수
-    // dp[i] = dp[i] + dp[i-1]: 빗금을 i개 칠 수 있는 경우의 수 + 빗금을 i-1개 칠 수 있는 경우의 수
+    division = prefix_sum[N-1] / 4;
 
-    for (int i = 1; i < N; i++) {
-        if (prefix_sum[i] == 3 * division)
-            dp[3] += dp[2];
-        if (prefix_sum[i] == 2 * division)
-            dp[2] += dp[1];
-        if (prefix_sum[i] == 1 * division)
-            dp[1] += dp[0];
-    }
-    cout << dp[3];
-
+    cout << f(0, 0);
     return 0;
 }
