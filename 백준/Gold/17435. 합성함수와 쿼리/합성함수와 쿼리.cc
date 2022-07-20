@@ -28,7 +28,8 @@ int main(){
     cin.tie(NULL); cout.tie(NULL);
 
     int M;
-    vector<vector<int>> next(MAX, vector<int>(MAX_K));
+    // vector<vector<int>> next(MAX, vector<int>(MAX_K));
+    int next[MAX][MAX_K];
 
     cin >> M;
     for (int x = 1; x <= M; x++)
