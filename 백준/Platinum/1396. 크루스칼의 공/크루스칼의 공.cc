@@ -50,7 +50,7 @@ struct LCA {
     LCA (int n) { N = n; }
     void makeTree(int curr) {
         for (int next: adj[curr]) {
-                if (next == curr) continue;
+                // if (next == curr) continue;
                 // parent[next][0] = curr;
                 depth[next] = depth[curr] + 1;
                 makeTree(next);
