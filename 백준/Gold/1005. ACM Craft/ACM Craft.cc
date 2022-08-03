@@ -56,18 +56,20 @@ void solve(){
     dist--;
     
     queue<int> q;
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < N; i++) {
+        result[i] = time_[i];
         if (indegree[i] == 0) q.push(i);
+    }
 
     while (indegree[dist] > 0) {
         int curr = q.front(); q.pop();
 
         for (int next: adj[curr]) {
-            result[next] = max(result[next], result[curr] + time_[curr]);
+            result[next] = max(result[next], result[curr] + time_[next]);
             if (--indegree[next] == 0) q.push(next);
         }
     }
-    cout << result[dist] + time_[dist] << endl;
+    cout << result[dist] << endl;
 };
 
 int main(int argc, char** argv){
