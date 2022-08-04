@@ -21,67 +21,54 @@ typedef long long ll;
 typedef pair<int, int> pii;
 typedef vector<int> vint;
 typedef vector<pii> vpii;
+#define NOT !
 
-int N, K;
-int dist;
+int N, K, W;
 vint time_(1000);
-vint result(1000);
-vint indegree(1000);
+vint dp(1000);
 vector<vint> adj(1000);
 
-void solve(){
+// 현재 건물에서부터 위상정렬해서 끝까지 방문 가능한 모든 노드들의 건설 시간 총합
+int dfs(int curr) {
+    int& ret = dp[curr];
+    if (ret != -1) return ret;
+
+    ret = time_[curr];
+    for (int next: adj[curr]) 
+        ret = max(ret, time_[curr] + dfs(next));
+    
+    return ret;
+}
+
+void solve() {
     cin >> N >> K;
+
     time_.clear();
-    result.clear();
-    indegree.clear();
+    dp.clear();
     adj.clear();
 
-    time_.resize(N, 0);
-    result.resize(N, 0);
-    indegree.resize(N, 0);
+    time_.resize(N);
+    dp.resize(N, -1);
     adj.resize(N);
-    
-    for (int i = 0; i < N; i++)
-        cin >> time_[i];
 
+    for (int i = 0; i < N; i++) cin >> time_[i];
     for (int i = 0; i < K; i++) {
-        int X, Y;
-        cin >> X >> Y;
+        int X, Y; cin >> X >> Y; 
         X--, Y--;
-        adj[X].push_back(Y);
-        indegree[Y]++;
+        adj[Y].push_back(X); // adj 관계를 거꾸로 넣어줌
     }
+    cin >> W; 
+    W--;
 
-    cin >> dist;
-    dist--;
-    
-    queue<int> q;
-    for (int i = 0; i < N; i++) {
-        result[i] = time_[i];
-        if (indegree[i] == 0) q.push(i);
-    }
+    cout << dfs(W) << endl;
+}
 
-    while (indegree[dist] > 0) {
-        int curr = q.front(); q.pop();
-
-        for (int next: adj[curr]) {
-            result[next] = max(result[next], result[curr] + time_[next]);
-            if (--indegree[next] == 0) q.push(next);
-        }
-    }
-    cout << result[dist] << endl;
-};
-
-int main(int argc, char** argv){
+int main(){
     ios::sync_with_stdio(false);
     cin.tie(NULL); cout.tie(NULL);
 
-    int T, test_case;
-
-    cin >> T;
-    for(test_case = 0; test_case  < T; test_case++){
-        solve();
-    }
-
+    int T; cin >> T;
+    while (T--) solve();
+    
     return 0;
 }
