@@ -36,7 +36,8 @@ typedef vector<Edge*> vEdgeP;
  * 1층에는 노드에서 나가는 간선만 존재한다.
  * 
  * 모든 노드는 0층에서 1층으로 올라가는 단방향 간선이 연결되어 있다.
- * 
+ * 시작 노드의 1층을 source로, 도착 노드의 0층을 sink로 삼아 최대 유량을 흘려보내면 
+ * 그것이 곧 minimum cut과 동치이다.
  */
 struct Edge{
     int to, c, f;
