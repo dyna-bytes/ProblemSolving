@@ -22,7 +22,6 @@ typedef long long ll;
 typedef pair<int, int> pii;
 typedef vector<int> vint;
 typedef vector<pii> vpii;
-const int INF = 1000'000'000;
 
 int main(){
     ios::sync_with_stdio(false);
@@ -64,20 +63,20 @@ int main(){
     
     int arrival_time = earlist_time[E];
     int count = 0;
-    vint visited(N);
+    vint visited(N); 
     q.push(E);
     while (!q.empty()) {
         int curr = q.front(); q.pop();
 
-        for (auto [next, time]: rev_adj[curr]) {
-            if (earlist_time[curr] == time + earlist_time[next]) {
+        for (auto [prev, time]: rev_adj[curr]) 
+            if (earlist_time[curr] == time + earlist_time[prev]) {
                 count++;
-                if (!visited[next]) {
-                    q.push(next);
-                    visited[next] = true;
+                if (!visited[prev]) {
+                    q.push(prev);
+                    visited[prev] = true;
                 }
             }
-        }
+        
     }
 
     cout << arrival_time << endl;
