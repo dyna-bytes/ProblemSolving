@@ -28,18 +28,16 @@ int main(){
     cin.tie(NULL); cout.tie(NULL);
 
     int K; cin >> K;
-    vector<char> inequalities(K);
-    vint min_res(K+1), max_res(K+1);
-    for (int i = 0; i < K; i++) 
-        cin >> inequalities[i];
 
+    vint min_res(K+1), max_res(K+1);
     vint indegree(K+1);
     vector<vint> adj(K+1);
     for (int i = 0; i < K; i++) {
-        if (inequalities[i] == '<') {
+        char op; cin >> op;
+        if (op == '<') {
             adj[i+1].push_back(i);
             indegree[i]++;
-        } else if (inequalities[i] == '>') {
+        } else if (op == '>') {
             adj[i].push_back(i+1);
             indegree[i+1]++;
         }
@@ -53,29 +51,25 @@ int main(){
             dsnd_pq.push(i);
         }
 
-    auto max_bfs = [&] (vint ind) {
-        int num = 9;
-        while (!asnd_pq.empty()) {
-            int curr = asnd_pq.top(); asnd_pq.pop();
-            max_res[curr] = num--;
+    auto bfs = [&](int num, vint& ind, auto& pq, vint &res) {
+        while (!pq.empty()) {
+            int curr = pq.top(); pq.pop();
+            res[curr] = num--;
             for (int next: adj[curr])
-                if (--ind[next] == 0) asnd_pq.push(next);
+                if (--ind[next] == 0) pq.push(next);
         }
     };
 
-    auto min_bfs = [&] (vint ind) {
-        int num = K;
-        while (!dsnd_pq.empty()) {
-            int curr = dsnd_pq.top(); dsnd_pq.pop();
-            min_res[curr] = num--;
-            for (int next: adj[curr])
-                if (--ind[next] == 0) dsnd_pq.push(next);
-        }
+    // indegree를 copy해서 사용. 원본에 영향을 미치지 않음
+    auto bfs_run = [&](vint ind, bool max_mode, vint& res) {
+        int num = (max_mode ? 9 : K);
+        if (max_mode) bfs(num, ind, asnd_pq, res);
+        else          bfs(num, ind, dsnd_pq, res);
     };
 
-    max_bfs(indegree);
-    min_bfs(indegree);
-    
+    bfs_run(indegree, true, max_res);
+    bfs_run(indegree, false, min_res);
+
     for (int r: max_res) cout << r;
     cout << endl;
     for (int r: min_res) cout << r;
