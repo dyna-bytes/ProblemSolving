@@ -19,7 +19,6 @@ using namespace std;
 #define endl '\n'
 typedef long long ll;
 typedef pair<int, int> pii;
-typedef pair<int, char> pic;
 
 const int SIZE = 2002;
 #define key first
@@ -30,25 +29,16 @@ struct MaxMatching{
     vector<int>A, B;
     vector<vector<int>> adj;
     vector<int> visited;
-    MaxMatching(int n, int m){
+    MaxMatching (int n, int m) {
         N = n, M = m;
         A.resize(N+1, -1), B.resize(M+1, -1);
         adj.resize(N+1);
         visited.resize(N+1);
     }
-    void addAdj(int from, int to){
+    void addAdj(int from, int to) {
         adj[from].push_back(to);
     }
-    void debugAdj(){
-        cout << endl;
-        for (int n = 0; n < adj.size(); n++) {
-            cout << n << "->|";
-            for (int m = 0; m < adj[n].size(); m++)
-                cout << adj[n][m] << "|";
-            cout << endl;
-        }
-    }
-    bool canMatch(int a){
+    bool canMatch(int a) {
         visited[a] = true;
         for (int b: adj[a]) {
             if (B[b] == -1 || !visited[B[b]] && canMatch(B[b])) {
@@ -59,7 +49,7 @@ struct MaxMatching{
         }
         return false;
     }
-    int run(){
+    int run() {
         int match = 0;
         for(int a = 0; a < N; a++){
             if (A[a] == -1){
@@ -72,7 +62,7 @@ struct MaxMatching{
 };
 
 void solve(){
-    vector<vector<pic>> hmap(SIZE, vector<pic>(SIZE));
+    vector<vector<pii>> hmap(SIZE, vector<pii>(SIZE));
     int H, V; cin >> H >> V;
     MaxMatching Graph(H, V);
 
@@ -87,14 +77,13 @@ void solve(){
         int sx, sy; cin >> sx >> sy;
         string word; cin >> word;
         for (int y = 0; y < word.size(); y++){
-            if (hmap[sy + y][sx].value 
+            if (hmap[sy + y][sx].value
             && (hmap[sy + y][sx].value != word[y]))
                 Graph.addAdj(hmap[sy + y][sx].key, v);
         }
     }
 
     cout << H + V - Graph.run() << endl;
-    // Graph.debugAdj();
 }
 
 int main(){
@@ -102,9 +91,8 @@ int main(){
     cin.tie(NULL); cout.tie(NULL);
 
     int T; cin >> T;
-    while(T--){
+    while(T--)
         solve();
-    }
     
     return 0;
 }
