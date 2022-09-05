@@ -57,9 +57,8 @@ int main(){
     int Q; cin >> Q;
     for (int i = 0; i < Q; i++) {
         int w; cin >> w;
-        if (f(0, offset + w)) cout << "Y";
-        else cout << "N";
-        if (i != Q) cout << " ";
+        if (f(0, offset + w)) cout << "Y ";
+        else cout << "N ";
     }
     return 0;
 }
