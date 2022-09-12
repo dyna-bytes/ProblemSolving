@@ -24,9 +24,9 @@ typedef vector<int> vint;
 typedef vector<pii> vpii;
 const int INF = 1e9;
 
-vint cost;
-vint psum;
-vector<vint> dp;
+vint cost(500);
+vint psum(501);
+vector<vint> dp(502, vint(502));
 // 구간 [s, e)의 최소 비용
 int minCostSum(int s, int e) {
     if (s + 1 == e) return cost[s];
