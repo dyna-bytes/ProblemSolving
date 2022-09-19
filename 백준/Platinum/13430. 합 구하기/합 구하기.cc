@@ -73,10 +73,7 @@ int main(){
         for (int c = 0; c <= r; c++)
             lower_triangular_mat[r][c] = 1;
 
-    auto ret = matmul(matpow(lower_triangular_mat, N-2), ones);
-    ll sum = 0;
-    for (int r = 0; r < len; r++)
-        (sum += ret[r][0]) %= MOD;
-    cout << sum;
+    auto ret = matmul(matpow(lower_triangular_mat, N-1), ones);
+    cout << ret[len - 1][0] % MOD;
     return 0;
 }
