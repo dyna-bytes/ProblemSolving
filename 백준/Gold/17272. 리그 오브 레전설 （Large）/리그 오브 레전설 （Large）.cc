@@ -68,9 +68,7 @@ int main(){
     }
 
     // fill base case under k < M
-    vector<vll> base_case(M, vll(M));
-    for (int r = 0; r < M; r++)
-        base_case[r][r] = 1;
+    vector<vll> base_case(M, {1});
 
     vector<vll> ignition_mat(M, vll(M));
     ignition_mat[0][0] = 1;
@@ -78,7 +76,7 @@ int main(){
     for (int r = 1; r < M; r++)
         ignition_mat[r][r-1] = 1;
 
-    auto ret = matmul(matpow(ignition_mat, N), base_case);
+    auto ret = matmul(matpow(ignition_mat, N - M + 1), base_case);
     cout << ret[0][0] << endl;
     // debugV2D(ret);
     return 0;
