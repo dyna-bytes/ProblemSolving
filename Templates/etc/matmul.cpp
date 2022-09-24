@@ -19,43 +19,41 @@ using namespace std;
 } while(0)
 #define endl '\n'
 typedef long long ll;
-typedef pair<int, int> pii;
-typedef pair<ll, ll> pll;
-typedef vector<int> vint;
 typedef vector<ll> vll;
-typedef vector<pii> vpii;
-typedef vector<pll> vpll;
+typedef vector<vll> matrix;
 const ll MOD = 1000;
 
-// A[R * K] B[K * C] = M[R * C]
-vector<vll> matmul(const vector<vll>& A, const vector<vll>& B) {
-    int R = A.size(), C = B[0].size(), K = B.size();
-    vector<vll> M(R, vll(C));
+// matmul A[R * K] B[K * C] = M[R * C]
+matrix operator * (const matrix& A, const matrix& B) {
+    assert (A[0].size() == B.size());
+    int R = A.size(), K = B.size(), C = B[0].size();
+    matrix M(R, vll(C));
     for (int r = 0; r < R; r++)
         for (int c = 0; c < C; c++) {
             for (int k = 0; k < K; k++)
-                M[r][c] += A[r][k] * B[k][c];
+                M[r][c] += A[r][k] * B[k][c] % MOD;
             M[r][c] %= MOD;
         }
     return M;
 }
 
-vector<vll> matsqr(const vector<vll>& A) {
-    return matmul(A, A);
+matrix matsqr(const matrix& A) {
+    return A * A;
 }
 
-/**
- * @brief Divide and Conquer
- * if K is even: A^K = A^(K/2)^2
- * else: A^K = A^(K/2)^2 * A
- */
-vector<vll> matpow(const vector<vll>& A, ll K) {
+matrix matpow(const matrix& A, ll K) {
     if (K == 2) return matsqr(A);
     if (K == 1) return A;
 
     if (K % 2 == 0) return matsqr(matpow(A, K/2));
-    else return matmul(matsqr(matpow(A, K/2)), A);
+    else return matsqr(matpow(A, K/2)) * A;
 }
+
+/**
+ * @brief 분할정복
+ * if K is even: A^K = A^(K/2)^2
+ * else: A^K = A^(K/2)^2 * A
+ */
 
 int main(){
     ios::sync_with_stdio(false);
