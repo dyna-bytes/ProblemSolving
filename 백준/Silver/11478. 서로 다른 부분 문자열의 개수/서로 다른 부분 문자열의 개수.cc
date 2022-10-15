@@ -29,8 +29,7 @@ int solve(string& S) {
     for (int s = 0; s < N; s++) 
         for (int e = s + 1; e <= N; e++) {
             string sub = S.substr(s, e - s);
-            auto it = hash.find(sub);
-            if (it == hash.end()) hash.insert(sub);
+            hash.insert(sub);
         }
     
     return hash.size();
