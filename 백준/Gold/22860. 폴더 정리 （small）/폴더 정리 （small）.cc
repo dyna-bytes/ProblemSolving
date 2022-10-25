@@ -38,16 +38,53 @@ unordered_map<string, Folder*> folderDB;
 
 void dfs(Folder* curr, unordered_map<string, int>& res) {
     // debug(curr->folderName);
-    for (File* file: curr->childFiles) {
-        // debug(file->fileName);
+    for (File* file: curr->childFiles) 
         res[file->fileName]++;
-    }
+    
     
     for (Folder* next: curr->childFolders)
         dfs(next, res);
 }
 
+void addFolder(string parent_folder, string name) {
+    if (folderDB.find(name) == folderDB.end()) {
+        Folder * folder = new Folder(name);
+        folderDB[name] = folder;
+    }
+
+    if (folderDB.find(parent_folder) == folderDB.end()) {
+        Folder * parentFolder = new Folder(parent_folder);
+        folderDB[parent_folder] = parentFolder;
+    }
+
+    (folderDB[parent_folder])->childFolders.insert(folderDB[name]);
+}
+
+void addFile(string parent_folder, string name) {
+    File * file = new File(name);
+    auto it = folderDB.find(parent_folder);
+
+    if (folderDB.find(parent_folder) == folderDB.end()) {
+        Folder * parentFolder = new Folder(parent_folder);
+        folderDB[parent_folder] = parentFolder;
+    }
+
+    (folderDB[parent_folder])->childFiles.insert(file);
+}
+
+pii displayFolderInfo(string name) {
+    Folder* folder = folderDB[name]; 
+
+    unordered_map<string, int> res;
+    dfs(folder, res);
+
+    int sum = 0;
+    for (auto [_, count]: res) sum += count;
+    return { res.size(), sum };
+}
+
 int main(){
+    FASTIO
     int folderNum, fileNum;
     cin >> folderNum >> fileNum;
 
@@ -58,29 +95,10 @@ int main(){
         int type;
         cin >> parent_folder >> name >> type;
 
-        if (type == FOLDER) {
-            if (folderDB.find(name) == folderDB.end()) {
-                Folder * folder = new Folder(name);
-                folderDB[name] = folder;
-            }
-
-            if (folderDB.find(parent_folder) == folderDB.end()) {
-                Folder * parentFolder = new Folder(parent_folder);
-                folderDB[parent_folder] = parentFolder;
-            }
-
-            (folderDB[parent_folder])->childFolders.insert(folderDB[name]);
-        } else {
-            File * file = new File(name);
-            auto it = folderDB.find(parent_folder);
-
-            if (folderDB.find(parent_folder) == folderDB.end()) {
-                Folder * parentFolder = new Folder(parent_folder);
-                folderDB[parent_folder] = parentFolder;
-            }
-
-            (folderDB[parent_folder])->childFiles.insert(file);
-        }
+        if (type == FOLDER) 
+            addFolder(parent_folder, name);
+        else 
+            addFile(parent_folder, name);
     }
 
     int Q; cin >> Q;
@@ -91,17 +109,9 @@ int main(){
         string stringbuffer;
         while (getline(iss, stringbuffer, '/')) {}
 
-        Folder* last = folderDB[stringbuffer];       
-
-        unordered_map<string, int> res;
-        dfs(last, res);
-        int sum = 0;
-        for (auto [_, count]: res) sum += count;
-        cout << res.size() << " " << sum << endl;
+        pii res = displayFolderInfo(stringbuffer);
+        cout << res.first << " " << res.second << endl;    
     }
     
-    // auto it = folderDB.find("main");
-    // for (auto e: it->second->childFolders)
-    //     cout << e->folderName << endl;
     return 0;
 }
