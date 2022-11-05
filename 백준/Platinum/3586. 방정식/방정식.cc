@@ -61,7 +61,7 @@ struct Frac {
     }
     friend ostream& operator << (ostream& out, const Frac& frac);
 };
-//
+
 std::ostream& operator << (ostream& out, Frac& frac) {
     if (frac.q < 0) {
         frac.p *= -1;
@@ -174,28 +174,21 @@ int main() {
     }
 
     Expr res = run_stack(postfix);
-    
-    if (res.a != ZERO) {
-        // 이항해서 X 구함
-        Frac X = MINUS * res.b / res.a;
 
-        // check answer (check if divide-by-zero happens)
-        run_stack(postfix, X, true);
-        cout << "X = " << X << endl;
-        return 0;
-    }
-
-    if (res.c != ZERO) {
-        if (res.b == ZERO) __PRINT_ERROR_MULTIPLE__;
-        else __PRINT_ERROR_NONE__;
-        return 0;
-    }
-
-    if (res.d != ZERO && res.b == ZERO) {
+    if ((res.a == ZERO && res.b == ZERO) && (res.c != ZERO || res.d != ZERO)) {
         __PRINT_ERROR_MULTIPLE__;
         return 0;
     }
+    if (res.a == ZERO || (res.c == ZERO && res.d == ZERO)) {
+        __PRINT_ERROR_NONE__;
+        return 0;
+    }
 
-    __PRINT_ERROR_NONE__;
+    // 이항해서 X 구함
+    Frac X = MINUS * res.b / res.a;
+
+    // check answer (check if divide-by-zero happens)
+    run_stack(postfix, X, true);
+    cout << "X = " << X << endl;
     return 0;
 }
