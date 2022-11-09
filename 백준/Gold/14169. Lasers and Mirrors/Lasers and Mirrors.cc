@@ -3,6 +3,11 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <unordered_set>#include <iostream>
+#include <algorithm>
+#include <vector>
+#include <set>
+#include <map>
 #include <unordered_set>
 #include <unordered_map>
 #include <queue>
@@ -54,44 +59,48 @@ int upper_bound(vector<pair<int, pii>>& axis, int key) {
 }
 
 int bfs(int sy, int sx, int ey, int ex) {
-	queue<pii> q; // {pos, dir}
-	q.push({ sy, VER });
-	q.push({ sx, HOR });
-	int dist = 0;
+	queue<tiii> q; // {pos, dir, mirrors}
+	q.push({ sy, HOR, 0 });
+	q.push({ sx, VER, 0 });
 	while (!q.empty()) {
-		int size = q.size();
-		for (int i = 0; i < size; i++) {
-			auto [pos, dir] = q.front(); q.pop();
-			if ((dir == HOR && pos == ex) || (dir == VER && pos == ey))
-				return dist;
-			int l, r;
-			if (dir == HOR) {
-				l = lower_bound(x_axis, pos);
-				r = upper_bound(x_axis, pos);
-				if (l == r)	continue;
+		auto [curr, dir, mirrors] = q.front(); // {현재의 x 또는 y 좌표, 직전에 빛이 쏘아진 방향, 튕긴 거울 수}
+		q.pop();
 
-				for (int j = l; j < r; j++) {
-					auto [ny, nidx] = x_axis[j].second;
-					if (visited[nidx][0]) continue;
-					visited[nidx][0] = true;
-					q.push({ ny, 1 });
-				}
-			}
-			else
-			{
-				l = lower_bound(y_axis, pos);
-				r = upper_bound(y_axis, pos);
-				if (l == r)	continue;
+		int y = -1, x = -1;
+		if (dir == VER) x = curr;
+		else y = curr;
 
-				for (int j = l; j < r; j++) {
-					auto [nx, nidx] = y_axis[j].second;
-					if (visited[nidx][1]) continue;
-					visited[nidx][1] = true;
-					q.push({ nx, 0 });
-				}
+		if (dir == HOR && y == ey) return mirrors;
+		if (dir == VER && x == ex) return mirrors;
+
+		// 만약 수직으로 거울에 들어왔다면
+		if (dir == VER) {
+			// 수평한 방향의 근처 거울을 찾음
+			int l_idx = lower_bound(x_axis, x);
+			int r_idx = upper_bound(x_axis, x);
+			if (l_idx == r_idx) continue;
+
+			for (int idx = l_idx; idx < r_idx; idx++) {
+				auto [_, next] = x_axis[idx];
+				auto [ny, nidx] = next;
+				if (visited[nidx][HOR]) continue;
+				visited[nidx][HOR] = true;
+				q.push({ ny, HOR, mirrors + 1 });
 			}
 		}
-		dist++;
+		else {
+			int l_idx = lower_bound(y_axis, y);
+			int r_idx = upper_bound(y_axis, y);
+			if (l_idx == r_idx) continue;
+
+			for (int idx = l_idx; idx < r_idx; idx++) {
+				auto [_, next] = y_axis[idx];
+				auto [nx, nidx] = next;
+				if (visited[nidx][VER]) continue;
+				visited[nidx][VER] = true;
+				q.push({ nx, VER, mirrors + 1 });
+			}
+		}
 	}
 
 	return -1;
@@ -116,7 +125,7 @@ int main() {
 
 	sort(y_axis.begin(), y_axis.end());
 	sort(x_axis.begin(), x_axis.end());
-	
+
 	cout << bfs(sy, sx, ey, ex);
 	return 0;
 }
