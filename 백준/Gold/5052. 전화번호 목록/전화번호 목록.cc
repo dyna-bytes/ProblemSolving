@@ -39,15 +39,16 @@ struct Trie {
             if (childs[i]) delete childs[i];
     }
     // 문자열 key를 현재 노드부터 삽입
-    void insert(const char* key) {
-        if (*key == '\0') final_state = true;
-        else {
-            int next = *key - '0';
-            if (!childs[next]) childs[next] = new Trie();
-            child_exist = true;
-
-            childs[next]->insert(key + 1);
+    bool insert(const char* key) {
+        if (*key == '\0') {
+            final_state = true;
+            return !child_exist; // final_state와 child_exist가 둘 다 true면 일관성이 없음
         }
+        int next = *key - '0';
+        if (!childs[next]) childs[next] = new Trie();
+        child_exist = true;
+        // final_state와 child_exist가 둘 다 true면 일관성이 없음
+        return !final_state && childs[next]->insert(key + 1);
     }
 
     bool isConsistent() {
@@ -67,12 +68,13 @@ int main(){
     while (T--) {
         int N; cin >> N;
         Trie* root = new Trie();
+        bool res = true;
         for (int i = 0; i < N; i++) {   
             char tel[11]; cin >> tel;
             
-            root->insert(tel);
+            if (res && !root->insert(tel)) res = false;
         }
-        cout << (root->isConsistent() ? "YES" : "NO") << endl;
+        cout << (res ? "YES" : "NO") << endl;
         delete root;
     }
     return 0;
