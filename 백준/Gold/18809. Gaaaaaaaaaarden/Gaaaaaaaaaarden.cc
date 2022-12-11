@@ -8,6 +8,7 @@
 #define AVAILABLE 2
 #define RED 3
 #define GREEN 4
+#define FLOWER 5
 
 const int dy[] = {-1, 1, 0, 0}, dx[] = {0, 0, -1, 1};
 
@@ -15,45 +16,43 @@ int Y, X;
 int G, R;
 int board[MAXN][MAXN];
 int visited[MAXN][MAXN];
-int red_visited[MAXN][MAXN];
-bool inRange(int y, int x) { return 0 <= y && y < Y && 0 <= x && x < X; }
+int status[MAXN][MAXN];
+inline bool inRange(int y, int x) { return 0 <= y && y < Y && 0 <= x && x < X; }
 
 int q_now = 0;
 int q_last = 0;
 int q_y_x[10000];
-int q_depth[10000];
-int q_is_red[10000];
+
 int bfs() {
     int flowers = 0;
     while(q_now < q_last) {
         int y = q_y_x[q_now] / X, x = q_y_x[q_now] % X;
-        int depth = q_depth[q_now];
-        int is_red = q_is_red[q_now];
         q_now++;
+
+        int depth = visited[y][x];
+        int is_red = status[y][x];
         
-        if (red_visited[y][x] == 10) continue;
+        if (status[y][x] == FLOWER) continue;
 
         for (int d = 0; d < 4; d++) {
             int ny = y + dy[d], nx = x + dx[d];
             if (!inRange(ny, nx)) continue;
             if (board[ny][nx] == WATER) continue;
             if (visited[ny][nx]) {
-                if (visited[ny][nx] == depth + 1 && red_visited[ny][nx] + is_red == RED + GREEN) {
+                if (visited[ny][nx] == depth + 1 && status[ny][nx] + is_red == RED + GREEN) {
                     flowers++;
-                    red_visited[ny][nx] = 10;
+                    status[ny][nx] = FLOWER;
                 }
                 continue; 
             }
 
             visited[ny][nx] = depth + 1;
-            red_visited[ny][nx] = is_red;
+            status[ny][nx] = is_red;
             q_y_x[q_last] = ny * X + nx;
-            q_depth[q_last] = depth + 1;
-            q_is_red[q_last] = is_red;
             q_last++;
         }
     }
-    // printf("flowers: %d\n", flowers);
+
     return flowers;
 }
 
@@ -64,53 +63,47 @@ int greens[MAXN * MAXN];
 void init() {
     q_now = q_last = 0;
     memset(visited, 0, sizeof(visited));
-    memset(red_visited, 0, sizeof(red_visited));
+    memset(status, 0, sizeof(status));
 
     for (int i = 0; i < R; i++) {
         q_y_x[q_last] = reds[i];
-        q_depth[q_last] = 1;
-        q_is_red[q_last] = RED;
         q_last++;
         
         int y = reds[i] / X, x = reds[i] % X;
         visited[y][x] = 1;
-        red_visited[y][x] = RED;
+        status[y][x] = RED;
     }        
     
     for (int i = 0; i < G; i++) {
         q_y_x[q_last] = greens[i];
-        q_depth[q_last] = 1;
-        q_is_red[q_last] = GREEN;
         q_last++;
 
         int y = greens[i] / X, x = greens[i] % X;
         visited[y][x] = 1;
-        red_visited[y][x] = GREEN;
+        status[y][x] = GREEN;
     }       
 }
 
 int N;
 int r = 0, g = 0;
 int ans = 0;
-void dfs(int n, int red, int green) {
-    if (red == 0 && green == 0) {
+void dfs(int n) {
+    if (r == R && g == G) {
         init();
-
         int ret = bfs(); 
-        if (ans < ret)
-            ans = ret;
+        ans = MAX(ans, ret);
         return;
     }
 
-    for (int m = n; m < N; m++) {
-        if (red > 0) {
+    for (register int m = n + 1; m < N; m++) {
+        if (r < R) {
             reds[r++] = supplements[m];
-            dfs(m + 1, red - 1, green);
+            dfs(m);
             r--;
         }
-        if (green > 0) {
+        if (g < G) {
             greens[g++] = supplements[m];
-            dfs(m + 1, red, green - 1);
+            dfs(m);
             g--;
         }
     }
@@ -127,7 +120,7 @@ int main() {
                 supplements[N++] = y * X + x;
         }
 
-    dfs(0, R, G);
+    dfs(-1);
     printf("%d\n", ans);
     return 0;
 }
