@@ -1,4 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #define MAXN 20
 const int dy[] = { -1, 1, 0, 0 }, dx[] = { 0, 0, -1,1 };
@@ -6,34 +5,51 @@ template <class T> const T& max(const T& a, const T& b) {
     return (a > b) ? a : b;
 }
 
+#define AND &&
+#define OR ||
+#define NOT !
 
 int Y, X;
 char board[MAXN][MAXN];
-int hash[26 + 'a'];
+int hash;
 
-bool inRange(int y, int x) { return 0 <= y && y < Y && 0 <= x && x < X; }
 int dfs(int y, int x) {
-
     int ret = 0;
-    for (int d = 0; d < 4; d++) {
-        int ny = y + dy[d], nx = x + dx[d];
-        if (!inRange(ny, nx)) continue;
-        if (hash[board[ny][nx]]) continue;
-
-        hash[board[ny][nx]] = true;
-        ret = max(ret, 1 + dfs(ny, nx));
-        hash[board[ny][nx]] = false;
-    } 
+    
+    // loop unrolling
+    if (x + 1 < X AND NOT(hash & (1 << board[y][x + 1]))) {
+        hash |= (1 << board[y][x + 1]);
+        ret = max(ret, 1 + dfs(y, x + 1));
+        hash &= ~(1 << board[y][x + 1]);
+    }
+    if (x > 0 AND NOT(hash & (1 << board[y][x - 1]))) {
+        hash |= (1 << board[y][x - 1]);
+        ret = max(ret, 1 + dfs(y, x - 1));
+        hash &= ~(1 << board[y][x - 1]);
+    }
+    if (y + 1 < Y AND NOT(hash & (1 << board[y + 1][x]))) {
+        hash |= (1 << board[y + 1][x]);
+        ret = max(ret, 1 + dfs(y + 1, x));
+        hash &= ~(1 << board[y + 1][x]);
+    }
+    if (y > 0 AND NOT(hash & (1 << board[y - 1][x]))) {
+        hash |= (1 << board[y - 1][x]);
+        ret = max(ret, 1 + dfs(y - 1, x));
+        hash &= ~(1 << board[y - 1][x]);
+    }
+    
     return ret;
 }
 
 int main() {
     scanf("%d %d", &Y, &X);
     for (int y = 0; y < Y; y++)
-        for (int x = 0; x < X; x++)
+        for (int x = 0; x < X; x++) {
             scanf(" %c", &board[y][x]);
+            board[y][x] -= 'A';
+        }
 
-    hash[board[0][0]] = true;
+    hash |= (1 << board[0][0]);
     printf("%d\n", 1 + dfs(0, 0));
     return 0;
 }
