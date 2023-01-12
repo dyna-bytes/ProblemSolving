@@ -1,43 +1,25 @@
 #include <bits/stdc++.h>
 using namespace std;
-#define debug(x)  std::cout << "[Debug] " << #x << " is " << x << '\n'
-#define debugVec(v) do { \
-    std::cout << "[Debug] ["; \
-    for(int i = 0; i < ((v.size())-1); i++) std::cout << v[i] << "|"; \
-    std::cout << v[((v.size())-1)] << "]\n"; \
-} while(0)
-#define debugV2D(v) do { \
-    std::cout << "[Debug] [\n"; \
-    for(int y = 0; y < (v.size()); y++) { \
-        if(v[y].empty()){ std::cout << "  []\n"; continue; } \
-        std::cout << "  ["; \
-        for(int x = 0; x < ((v[y].size())-1); x++) \
-            std::cout << v[y][x] << "|"; \
-        std::cout << v[y][(v[y].size())-1] << "]\n"; \
-    } \
-    std::cout << "]\n"; \
-} while(0)
-#define endl '\n'
+#define FASTIO ios::sync_with_stdio(0), cin.tie(0), cout.tie(0)
 typedef long long ll;
-typedef pair<int, int> pii;
-typedef vector<int> vint;
-typedef vector<pii> vpii;
+const int MAXN = 1e5 + 1;
 
-ll A[100001];
+int N;
+ll A[MAXN];
 
-int main(){
-    ios::sync_with_stdio(false);
-    cin.tie(NULL); cout.tie(NULL);
-    
-    int N; cin >> N;
-    for (int i = 0; i < N; i++) cin >> A[i];
-
-    ll cont_sum = A[0];
-    ll max_sum = cont_sum;
-    for (int i = 1; i < N; i++) {
-        cont_sum = max(A[i], cont_sum + A[i]);
-        max_sum = max(max_sum, cont_sum);
+ll solve() {
+    ll max_sum = -MAXN;
+    ll cur_sum = 0;
+    for (int i = 0; i < N; i++) {
+        cur_sum = max(A[i], cur_sum + A[i]);
+        max_sum = max(max_sum, cur_sum);
     }
-    cout << max_sum;
+    return max_sum;
+}
+int main() {
+    FASTIO;
+    cin >> N;
+    for (int i = 0; i < N; i++) cin >> A[i];
+    cout << solve();
     return 0;
 }
