@@ -12,14 +12,15 @@ ll A[MAXN];
 ll solve() {
     ll ans = 0;
     for (int i = 0; i < N - 2; i++) {
-        for (int s = i + 1, e = N - 1; s < e; ) {
+        if (A[i] > 0) break;
+        
+        for (ll s = i + 1, e = N - 1; s < e; ) {
             if (A[i] + A[s] + A[e] < 0) s++;
             else if (A[i] + A[s] + A[e] > 0) e--;
             else { 
                 if (A[s] == A[e]) {
-                    ans += (e - s);
-                    s++;
-                    continue;
+                    ans += (e - s + 1) * (e - s) / 2; // combination nC2
+                    break;
                 }
 
                 ll dup_left = 1;
