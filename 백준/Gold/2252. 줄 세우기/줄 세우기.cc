@@ -1,5 +1,6 @@
 #include <bits/stdc++.h>
 using namespace std;
+#define FASTIO ios::sync_with_stdio(0), cin.tie(0), cout.tie(0)
 #define endl '\n'
 #define debug(x) cout << "[debug] " << #x << " is " << x << endl;
 #define debugVec(v) do { \
@@ -24,14 +25,13 @@ typedef vector<pii> vpii;
 int N, M;
 vector<vint> adj;
 vint indegree;
-vint res;
 
 void bfs() {
     queue<int> q;
-    for (int i = 1; i <= N; i++)
-        if (indegree[i] == 0) {
-            q.push(i);
-            res.push_back(i);
+    for (int s = 1; s <= N; s++)
+        if (indegree[s] == 0) {
+            q.push(s);
+            cout << s << ' ';
         }
 
     while (!q.empty()) {
@@ -41,12 +41,13 @@ void bfs() {
             if (--indegree[next]) continue;
 
             q.push(next);
-            res.push_back(next);
+            cout << next << ' ';
         }
     }
 }
 
 int main() {
+    FASTIO;
     cin >> N >> M;
     adj = vector<vint>(N + 1);
     indegree = vint(N + 1);
@@ -59,6 +60,5 @@ int main() {
     }
 
     bfs();
-    for (int r: res) cout << r << " ";
     return 0;
 }
