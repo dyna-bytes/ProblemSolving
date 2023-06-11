@@ -1,48 +1,51 @@
 #include <bits/stdc++.h>
 using namespace std;
-#define FASTIO ios::sync_with_stdio(0), cin.tie(0), cout.tie(0)
-#define endl '\n'
-#define debug(x) cout << "[debug] " << #x << " is " << x << endl;
-#define debugVec(v) do { \
-    std::cout << "[Debug] ["; \
-    for(int i = 0; i < ((v.size())); i++) std::cout << v[i] << "|"; \
-    std::cout << "\n"; \
-} while(0)
-#define debugV2D(v) do { \
-    std::cout << "[Debug] [\n"; \
-    for(int y = 0; y < (v.size()); y++) { \
-        std::cout << "  ["; \
-        for(int x = 0; x < ((v[y].size())); x++) \
-            std::cout << v[y][x] << "|"; \
-        std::cout << "\n"; \
-    } \
-    std::cout << "]\n"; \
-} while(0)
+
+typedef long long ll;
 typedef pair<int, int> pii;
+typedef pair<ll, ll> pll;
 typedef vector<int> vint;
+typedef vector<ll> vll;
 typedef vector<pii> vpii;
+typedef vector<pll> vpll;
+
+#define FASTIO ios::sync_with_stdio(0), cin.tie(0), cout.tie(0);
+#define endl '\n';
+#define debug(x) cout << "[Debug] " << #x << " is " << x << endl;
+#define _debugV1(v) for (auto it = v.begin(); it != v.end(); ++it) { cout << *it; if (next(it) != v.end()) cout << " | "; }
+#define debugVec(v) do { \
+    cout << "[Debug] [ "; \
+    _debugV1(v); \
+    cout << " ]" << endl; \
+} while (0)
+#define debugV2(v) do { \
+    cout << "[Debug] [" << endl; \
+    for (auto v1: v) { \
+        cout << "  [ "; \
+        _debugV1(v1); \
+        cout << " ]" << endl; \
+    } \
+    cout << "]" << endl; \
+} while (0)
+#define pair_out(pair) { out << '{' << pair.first << ", " << pair.second << '}'; }
+std::ostream& operator << (ostream& out, pii& pair) {
+    pair_out(pair);
+    return out;
+}
+std::ostream& operator << (ostream& out, pll& pair) {
+    pair_out(pair);
+    return out;
+}
 
 int N, M;
 vector<vint> adj;
 vint indegree;
 
-void bfs() {
-    queue<int> q;
-    for (int s = 1; s <= N; s++)
-        if (indegree[s] == 0) {
-            q.push(s);
-            cout << s << ' ';
-        }
-
-    while (!q.empty()) {
-        int curr = q.front(); q.pop();
-
-        for (int next : adj[curr]) {
-            if (--indegree[next]) continue;
-
-            q.push(next);
-            cout << next << ' ';
-        }
+void dfs(int curr) {
+    cout << curr << ' ';
+    for (int next: adj[curr]) {
+        if (--indegree[next]) continue;
+        dfs(next);
     }
 }
 
@@ -59,6 +62,15 @@ int main() {
         indegree[to]++;
     }
 
-    bfs();
+    stack<int> s;
+    for (int start = 1; start <= N; start++)
+        if (indegree[start] == 0)
+            s.push(start);
+    
+    while (!s.empty()) {
+        dfs(s.top());
+        s.pop();
+    }
+
     return 0;
 }
