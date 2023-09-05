@@ -40,7 +40,11 @@ bool dequeue(struct Q* Q, int *ret) {
 struct Node {
 	int val;
 	struct Node* next;
-} Nodes[MAX];
+} Nodes[MAX * 2];
+int smalloc_idx = 0;
+struct Node* smalloc() {
+	return &Nodes[++smalloc_idx];
+}
 
 void printlist(struct Node* head) {
 	for (struct Node* ptr = head; ptr; ptr = ptr->next)
@@ -49,7 +53,7 @@ void printlist(struct Node* head) {
 }
 // push front
 void push(struct Node** head, int val) {
-	struct Node* newNode = (struct Node*)malloc(sizeof(*newNode));
+	struct Node* newNode = smalloc();
 	newNode->next = *head;
 	newNode->val = val;
 	*head = newNode;
