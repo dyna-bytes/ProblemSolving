@@ -30,7 +30,7 @@ bool enqueue(struct Q* Q, int val) {
 	Q->e++;
 	return true;
 }
-bool dequeue(struct Q* Q, int *ret) {
+bool dequeue(struct Q* Q, int* ret) {
 	if (isEmpty(Q)) return false;
 	*ret = Q->q[Q->s];
 	Q->s++;
@@ -58,6 +58,36 @@ void push(struct Node** head, int val) {
 	newNode->val = val;
 	*head = newNode;
 }
+void countsort(struct Node** head);
+void mergesort(struct Node** head);
+void sort(struct Node** head, int N) {
+	if (N < MAX / 4) countsort(head);
+	else mergesort(head);
+}
+
+int counts[MAX];
+void countsort(struct Node** head) {
+	if (*head == NULL) return;
+	memset(counts, 0, sizeof(counts));
+	struct Node* ptr = *head;
+	while (ptr) {
+		counts[ptr->val]++;
+		ptr = ptr->next;
+	}
+
+	ptr = *head;
+	int i = 1;
+	while (ptr) {
+		if (counts[i] == 0) {
+			i++;
+			continue;
+		}
+		ptr->val = i;
+		counts[i]--;
+		ptr = ptr->next;
+	}
+}
+
 struct Node* merge(struct Node* left, struct Node* right) {
 	if (left == NULL) return right;
 	if (right == NULL) return left;
@@ -95,12 +125,12 @@ void split(struct Node* source, struct Node** left, struct Node** right) {
 	*right = slow->next;
 	slow->next = NULL;
 }
-void sort(struct Node** head) {
+void mergesort(struct Node** head) {
 	if (*head == NULL || (*head)->next == NULL) return;
 	struct Node* left, * right;
 	split(*head, &left, &right);
-	sort(&left);
-	sort(&right);
+	mergesort(&left);
+	mergesort(&right);
 	*head = merge(left, right);
 }
 
@@ -115,8 +145,8 @@ void input() {
 		push(&edge[v], u);
 	}
 
-	for (int i = 1; i <= N; i++) 
-		sort(&edge[i]);
+	for (int i = 1; i <= N; i++)
+		sort(&edge[i], N);
 }
 
 int visited[MAX / 2];
@@ -138,7 +168,7 @@ void bfs(int R) {
 }
 
 void sol() {
-	for (int i = 1; i <= N; i++) 
+	for (int i = 1; i <= N; i++)
 		printf("%d\n", visited[i]);
 }
 
