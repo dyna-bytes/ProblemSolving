@@ -1,80 +1,78 @@
 #include <iostream>
-#include <vector>
-#include <algorithm>
-#include <queue>
-#include <stack>
+#include <bits/stdc++.h>
 using namespace std;
-#define debug(x)  std::cout << "[Debug] " << #x << " is " << x << '\n'
+#define FASTIO cin.tie(0)->sync_with_stdio(0)
+
 #define endl '\n'
-typedef long long ll;
-typedef pair<int, int> P;
+#define DEBUG
+#ifdef DEBUG
+#define debug(x) cout << #x << " is " << x << endl;
+#define debugVect(v) do { \
+    cout << #v << " is |" ; \
+    for (auto i : v) cout << i << "|"; \
+    cout << endl; \
+} while (0)
+#else
+#define debug(x)
+#define debugVect(v)
+#endif
+
 const int INF = 10000000;
+typedef pair<int, int> pii;
 
-struct Dijkstra{
-    int N;
-    vector<vector<P>> adj;
-    vector<int> dist;
-    vector<bool> visited;
-    Dijkstra(int n){
-        N = n;
-        adj.resize(N+1);
-    }
-    void init(){
-        dist.clear();
-        visited.clear();
-        dist.resize(N+1, INF);
-        visited.resize(N+1);
-    }
-    void addAdj(int from, int to, int dist){ adj[from].push_back({to, dist}); }
-    int run(int S, int E){
-        init();
-        dist[S] = 0;
-        priority_queue<P, vector<P>, greater<P>> pq;
-        pq.push({dist[S], S});
+int N, E;
+int U, V;
+vector<vector<pii>> adj;
+vector<int> dist;
+vector<bool> visited;
 
-        while(!pq.empty()){
-            int curr = pq.top().second; pq.pop();
-            if(visited[curr]) continue;
-            visited[curr] = true;
+int dijkstra(int s, int e) {
+    dist.clear();
+    dist.resize(N+1, INF);
+    visited.clear();
+    visited.resize(N+1, false);
 
-            if(curr == E) break;
+    priority_queue<pii> pq;
+    dist[s] = 0;
+    pq.push({ 0, s });
 
-            for(P p: adj[curr]){
-                int next = p.first, weight = p.second;
-                if(dist[next] > dist[curr] + weight){
-                    dist[next] = dist[curr] + weight;
-                    // debug(dist[next]);
-                    pq.push({dist[next], next});
-                }
-            }
+    while (pq.size()) {
+        auto [ dist_curr, curr ] = pq.top(); pq.pop();
+        dist_curr = -dist_curr;
+
+        if (visited[curr]) continue;
+        visited[curr] = true;
+
+        if (curr == e) break;
+
+        for (auto& [next, cost] : adj[curr]) {
+            if (dist[next] <= dist[curr] + cost) continue;
+            dist[next] = dist[curr] + cost;
+            pq.push({ -dist[next], next });
         }
-        return dist[E];
-    }
-};
-
-int main(){
-    ios::sync_with_stdio(false);
-    cin.tie(NULL); cout.tie(NULL);
-    
-    int N, E; cin >> N >> E;
-    Dijkstra Graph(N);
-
-    for(int i = 0; i < E; i++){
-        int from, to, dist;
-        cin >> from >> to >> dist;
-        Graph.addAdj(from, to, dist);
-        Graph.addAdj(to, from, dist);
     }
 
-    int A, B; cin >> A >> B;
+    return dist[e];
+}
 
-    // 경로: 1 -> A -> B -> N;
-    int ret = Graph.run(1, A) + Graph.run(A, B) + Graph.run(B, N);
+int main() {
+    FASTIO;
+    cin >> N >> E;
 
-    // // 경로: 1 -> B -> A -> N;
-    ret = min(ret, Graph.run(1, B) + Graph.run(B, A) + Graph.run(A, N));
+    adj.resize(N+1);
+    for (int i = 0; i < E; i++) {
+        int a, b, c;
+        cin >> a >> b >> c;
+        adj[a].push_back({ b, c });
+        adj[b].push_back({ a, c });
+    }
+    cin >> U >> V;
 
-    if(ret >= INF) cout << -1;
-    else cout << ret;
+    int ans = dijkstra(1, U) + dijkstra(U, V) + dijkstra(V, N);
+    ans = min(ans, dijkstra(1, V) + dijkstra(V, U) + dijkstra(U, N));
+
+    if (ans >= INF) cout << -1 << endl;
+    else cout << ans << endl;
+
     return 0;
 }
