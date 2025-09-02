@@ -1,73 +1,85 @@
 #include <iostream>
-#include <vector>
-#include <algorithm>
-#include <queue>
-#include <stack>
+#include <bits/stdc++.h>
 using namespace std;
-#define debug(x)  std::cout << "[Debug] " << #x << " is " << x << '\n'
+#define FASTIO cin.tie(0)->sync_with_stdio(0)
+
 #define endl '\n'
-typedef long long ll;
-typedef pair<int, int> P;
-const int INF = 1000000000;
+// #define DEBUG
+#ifdef DEBUG
+#define debug(x) cout << #x << " is " << x << endl;
+#define debugVect(v) do { \
+    cout << #v << " is |" ; \
+    for (auto i : v) cout << i << "|"; \
+    cout << endl; \
+} while (0)
+#else
+#define debug(x)
+#define debugVect(v)
+#endif
 
-struct Dijkstra{
-    int N;
-    vector<vector<P>> adj;
-    Dijkstra(int n){
-        N = n;
-        adj.resize(N+1);
-    }
-    void addAdj(int from, int to, int dist){
-        adj[from].push_back({to, dist});
-    }
-    void run(int S, int E, vector<int>& dist, bool to_centroid){
-        vector<bool> visited(N+1);
-        priority_queue<P, vector<P>, greater<P>> pq;
-        dist[S] = 0;
+const int INF = 1e9;
+typedef pair<int, int> pii;
 
-        pq.push({dist[S], S});
-        while (!pq.empty()){
-            int curr = pq.top().second; pq.pop();
+vector<int> dist;
+vector<bool> visited;
 
-            if(to_centroid && curr == E) break;
-            if(visited[curr]) continue;
-            visited[curr] = true;
-            for(P p: adj[curr]){
-                int next = p.first, weight = p.second;
-                if(dist[next] > dist[curr] + weight){
-                    dist[next] = dist[curr] + weight;
-                    pq.push({dist[next], next});
-                }
-            }
+int dijkstra(int S, int E, vector<vector<pii>>& adj) {
+    dist.clear();
+    dist.resize(adj.size(), INF);
+    visited.clear();
+    visited.resize(adj.size(), false);
+
+    priority_queue<pii, vector<pii>, greater<pii>> pq;
+    dist[S] = 0;
+    pq.push({ 0, S });
+
+    while (pq.size()) {
+        auto [_, curr] = pq.top();
+        pq.pop();
+
+        if (visited[curr]) continue;
+        visited[curr] = true;
+
+        for (auto& [next, cost] : adj[curr]) {
+            if (dist[next] < dist[curr] + cost) continue;
+
+            dist[next] = dist[curr] + cost;
+            pq.push({ dist[next], next });
         }
     }
-};
-int main(){
-    ios::sync_with_stdio(false);
-    cin.tie(NULL); cout.tie(NULL);
-    
+
+    return dist[E];
+}
+
+int solution(int N, int M, int X, vector<vector<pii>>& adj) {
+    vector<int> returns;
+
+    dijkstra(X, 0, adj);
+    returns = dist;
+
+    for (int i = 1; i <= N; i++) {
+        if (i == X) continue;
+        returns[i] += dijkstra(i, X, adj);
+    }
+
+    debugVect(returns);
+    return *max_element(returns.begin() + 1, returns.end());
+}
+
+int main() {
     int N, M, X;
+    vector<vector<pii>> adj;
+
     cin >> N >> M >> X;
-    Dijkstra Graph(N);
+    adj.resize(N+1);
 
-    for(int i = 0; i < M; i++){
-        int from, to, dist;
-        cin >> from >> to >> dist;
-        Graph.addAdj(from, to, dist);
+    for (int i = 0; i < M; i++) {
+        int S, E, T;
+        cin >> S >> E >> T;
+        adj[S].push_back({ E, T });
     }
 
-    vector<int> time(N+1, INF);
-    // get time for "X -> all nodes"
-    Graph.run(X, -1, time, false);
+    cout << solution(N, M, X, adj) << endl;
 
-    // get time for "all nodes -> X"
-    for(int n = 1; n <= N; n++){
-        vector<int> time_NtoX(N+1, INF);
-        Graph.run(n, X, time_NtoX, true);
-
-        time[n] += time_NtoX[X];
-    }
-
-    cout << *max_element(&time[1], &time[N+1]);
     return 0;
 }
