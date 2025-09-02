@@ -1,75 +1,71 @@
 #include <iostream>
-#include <vector>
-#include <algorithm>
-#include <queue>
-#include <stack>
+#include <bits/stdc++.h>
 using namespace std;
-#define debug(x)  std::cout << "[Debug] " << #x << " is " << x << '\n'
+#define FASTIO cin.tie(0)->sync_with_stdio(0)
+
 #define endl '\n'
+#define DEBUG
+#ifdef DEBUG
+#define debug(x) cout << #x << " is " << x << endl;
+#define debugVect(v) do { \
+    cout << #v << " is |" ; \
+    for (auto i : v) cout << i << "|"; \
+    cout << endl; \
+} while (0)
+#else
+#define debug(x)
+#define debugVect(v)
+#endif
+
+const int INF = 1e9;
+typedef pair<int, int> pii;
 typedef long long ll;
-typedef pair<int, int> P;
+typedef pair<ll, ll> pll;
 
-const int INF = 1000000000;
+int N, M;
+int S, E;
+vector<vector<pll>> adj;
+vector<ll> dist;
+vector<bool> visited;
 
-struct Dijkstra{
-    vector<vector<P>> adj;
-    vector<int> dist;
-    vector<bool> visited;
-    Dijkstra(int N){
-        adj.resize(N + 1);
-        dist.resize(N + 1, INF);
-        visited.resize(N + 1);
-    }
-    void setAdj(int from, int to, int weight){
-        adj[from].push_back({to, weight});
-        // 인접 리스트에 담을 때는 {노드, 가중치} 순으로 담지만
-        // 뒤에 우선순위 큐에서는 {가중치, 노드} 순으로 담음(가중치에 대해 오름차순 정렬해야 하므로)
-    }
-    int getDist(int target){
-        return dist[target];
-    }
-    void run(int start){
-        dist[start] = 0;
+int solution(int s, int e) {
+    dist.resize(N+1, INF);
+    visited.resize(N+1, false);
 
-        priority_queue<P, vector<P>, greater<P>> pq;
-        pq.push({dist[start], start});
+    priority_queue<pll, vector<pll>, greater<pll>> pq;
+    dist[s] = 0;
+    pq.push( { 0, s });
 
-        while(!pq.empty()){
-            int curr = pq.top().second;
-            pq.pop();
+    while (pq.size()) {
+        auto [_, curr] = pq.top();
+        pq.pop();
 
-            if(visited[curr]) continue;
-            visited[curr] = true;
-            for(P p: adj[curr]){
-                int next = p.first, weight = p.second;
-                if(dist[next] > dist[curr] + weight){
-                    dist[next] = dist[curr] + weight;
-                    pq.push({dist[next], next});
-                }
-            }
+        if (visited[curr]) continue;
+        visited[curr] = true;
+
+        for (auto& [next, cost] : adj[curr]) {
+            if (dist[next] <= dist[curr] + cost) continue;
+            dist[next] = dist[curr] + cost;
+            pq.push({ dist[next], next });
         }
     }
-};
 
-int main(){
-    ios::sync_with_stdio(false);
-    cin.tie(NULL); cout.tie(NULL);
-    
-    int N, M;
+    return dist[e];
+}
+
+int main() {
+    FASTIO;
     cin >> N >> M;
-    Dijkstra graph(N);
 
-    for(int i = 0; i < M; i++){
-        int from, to, weight;
-        cin >> from >> to >> weight;
-        graph.setAdj(from, to, weight);
+    adj.resize(N+1);
+    for (int i = 0; i < M; i++) {
+        int from, to, dist;
+        cin >> from >> to >> dist;
+        adj[from].push_back({ to, dist });
     }
 
-    int start, end;
-    cin >> start >> end;
+    cin >> S >> E;
+    cout << solution(S, E) << endl;
 
-    graph.run(start);
-    cout << graph.getDist(end);
-    
     return 0;
 }
