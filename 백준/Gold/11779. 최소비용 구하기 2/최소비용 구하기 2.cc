@@ -1,80 +1,83 @@
+#include <iostream>
 #include <bits/stdc++.h>
 using namespace std;
+#define FASTIO cin.tie(0)->sync_with_stdio(0)
+
 #define endl '\n'
+#define DEBUG
+#ifdef DEBUG
+#define debug(x) cout << #x << " is " << x << endl;
+#define debugVect(v) do { \
+    cout << #v << " is |" ; \
+    for (auto i : v) cout << i << "|"; \
+    cout << endl; \
+} while (0)
+#else
+#define debug(x)
+#define debugVect(v)
+#endif
+
+const int INF = 1e9;
 typedef pair<int, int> pii;
-typedef vector<int> vint;
-typedef vector<pii> vpii;
-const int INF = 1e9 + 1;
 
-struct Dijkstra {
-    int N;
-    vector<vpii> adj;
-    vint dist;
-    vint prev;
-    vint visited;
+int solution(int N, int M, int start, int end,
+    vector<vector<pii>>& adj, vector<int>& prev)
+{
+    vector<int> dist(N+1, INF);
+    priority_queue<pii, vector<pii>, greater<pii>> pq;
+    prev.resize(N+1, 0);
 
-    Dijkstra(int n) {
-        N = n;
-        adj.resize(N+1);
-        dist.resize(N+1, INF);
-        prev.resize(N+1, -1);
-        visited.resize(N+1);
-    }
-    void setAdj(int from, int to, int weight) {
-        adj[from].push_back({to, weight});
-    }
-    int getDist(int target) {
-        return dist[target];
-    }
-    void run(int start) {
-        dist[start] = 0;
+    dist[start] = 0;
+    pq.push({ 0, start });
 
-        priority_queue<pii, vpii, greater<pii>> pq;
-        pq.push({dist[start], start});
+    while (!pq.empty()) {
+        auto [ dist_curr, curr ] = pq.top();
+        pq.pop();
 
-        while (!pq.empty()) {
-            auto [_, curr] = pq.top(); pq.pop();
+        if (dist_curr > dist[curr]) continue;
 
-            if (visited[curr]) continue;
-            visited[curr] = true;
+        for (auto& [next, cost]: adj[curr]) {
+            if (dist[next] <= dist[curr] + cost) continue;
 
-            for (auto [next, weight]: adj[curr]) {
-                if (dist[next] < dist[curr] + weight) continue;
-
-                dist[next] = dist[curr] + weight;
-                prev[next] = curr;
-                pq.push({dist[next], next});
-            }
+            dist[next] = dist[curr] + cost;
+            pq.push({ dist[next], next });
+            prev[next] = curr;
         }
     }
-    void backtracking(int S, int E) {
-        vint path;
-        for (int curr = E; curr != S; curr = prev[curr])
-            path.push_back(curr);
 
-        path.push_back(S);
-        reverse(path.begin(), path.end());
-
-        cout << path.size() << endl;
-        for (int elem: path) cout << elem << " ";
-    }
-};
+    return dist[end];
+}
 
 int main() {
+    FASTIO;
+
     int N, M;
+    int start, end;
+    vector<vector<pii>> adj;
+    vector<int> prev;
+
     cin >> N >> M;
-    Dijkstra Graph(N);
+    adj.resize(N + 1);
     for (int i = 0; i < M; i++) {
-        int from, to, weight;
-        cin >> from >> to >> weight;
-        Graph.setAdj(from, to, weight);
+        int u, v, w;
+        cin >> u >> v >> w;
+        adj[u].push_back({ v, w });
     }
 
-    int S, E;
-    cin >> S >> E;
-    Graph.run(S);
+    cin >> start >> end;
 
-    cout << Graph.getDist(E) << endl;
-    Graph.backtracking(S, E);
+    int ans = solution(N, M, start, end, adj, prev);
+
+    cout << ans << endl;
+
+    vector<int> path;
+    for (int node = end; node != start; node = prev[node])
+        path.push_back(node);
+    path.push_back(start);
+
+    cout << path.size() << endl;
+    for (auto it = path.rbegin(); it != path.rend(); it++)
+        cout << *it << " ";
+
     return 0;
 }
