@@ -1,53 +1,58 @@
+#include <iostream>
 #include <bits/stdc++.h>
 using namespace std;
-#define debug(x)  std::cout << "[Debug] " << #x << " is " << x << '\n'
-#define debugVec(v) do { \
-    std::cout << "[Debug] ["; \
-    for(int i = 0; i < ((v.size())-1); i++) std::cout << v[i] << "|"; \
-    std::cout << v[((v.size())-1)] << "]\n"; \
-} while(0)
-#define debugV2D(v) do { \
-    std::cout << "[Debug] [\n"; \
-    for(int y = 0; y < (v.size()); y++) { \
-        if(v[y].empty()){ std::cout << "  []\n"; continue; } \
-        std::cout << "  ["; \
-        for(int x = 0; x < ((v[y].size())-1); x++) \
-            std::cout << v[y][x] << "|"; \
-        std::cout << v[y][(v[y].size())-1] << "]\n"; \
-    } \
-    std::cout << "]\n"; \
-} while(0)
+#define FASTIO cin.tie(0)->sync_with_stdio(0)
+
 #define endl '\n'
-typedef long long ll;
+#define DEBUG
+#ifdef DEBUG
+#define debug(x) cout << #x << " is " << x << endl;
+#define debugVect(v) do { \
+    cout << #v << " is |" ; \
+    for (auto i : v) cout << i << "|"; \
+    cout << endl; \
+} while (0)
+#else
+#define debug(x)
+#define debugVect(v)
+#endif
+
 typedef pair<int, int> pii;
-typedef vector<int> vint;
-typedef vector<pii> vpii;
+const int INF = 1e9;
+const int MAXN = 300 + 5;
 
-const int MAXN = 300;
-int N;
-int A[MAXN + 1];
-int dp[2][MAXN + 1];
+int steps[MAXN];
+int dp[MAXN][2]; // {index, contiguous}
+// dp[n+1][1] = steps[n+1] + dp[n][0]
+// dp[n+2][0] = steps[n+1] + max(dp[n][1], dp[n][0])
 
-int f(int n, int cnt) {
-    if (n == 0) return A[0];
-    
-    int& ret = dp[cnt][n];
-    if (ret != -1) return ret;
+int f(int N) {
+    fill(dp[0], dp[0] + MAXN, 0);
+    fill(dp[1], dp[1] + MAXN, 0);
 
-    ret = 0;
-    if (cnt == 0) ret = f(n - 1, cnt + 1);
-    if (n > 1) ret = max(ret, f(n - 2, 0));
-    ret += A[n];
-    return ret;
+    dp[1][0] = steps[1];
+    dp[1][1] = 0;
+
+    dp[2][0] = steps[2];
+    dp[2][1] = dp[1][0] + steps[2];
+
+
+    for (int i = 3; i <= N; i++) {
+        dp[i][1] = steps[i] + dp[i-1][0];
+        dp[i][0] = max(dp[i][0],
+            steps[i] + max(dp[i-2][1], dp[i-2][0]));
+    }
+
+    return max(dp[N][0], dp[N][1]);
 }
 
-int main(){
-    ios::sync_with_stdio(false);
-    cin.tie(NULL); cout.tie(NULL);
-
-    memset(dp, -1, sizeof(dp));
+int main() {
+    FASTIO;
+    int N;
     cin >> N;
-    for (int i = 0; i < N; i++) cin >> A[i];
-    cout << f(N-1, 0);
+    for (int i = 1; i <= N; i++)
+        cin >> steps[i];
+
+    cout << f(N) << endl;
     return 0;
 }
