@@ -11,6 +11,7 @@ using namespace std;
 #endif
 
 const int MAX_SIZE = 1e5;
+const int HASH_SIZE = 26*26*26*26;
 
 struct Memory {
     int addr;
@@ -25,9 +26,16 @@ struct Memory *pool_alloc() {
     return &pool[sp++];
 }
 
+Memory* Hash[HASH_SIZE];
+int get_hash(const string& var) {
+    int hash = 0;
+    for (int i = 0; i < 4; i++)
+        hash = hash * 26 + (var[i] - 'a');
+    return hash;
+}
+
 struct Memory *head;
 struct Memory *tail;
-unordered_map<string, Memory*> alloced;
 
 void init() {
     head = pool_alloc();
@@ -53,6 +61,8 @@ void init() {
 }
 
 int user_malloc(const string& var, int mSize) {
+    int key = get_hash(var);
+
     for (Memory *it = head; it != tail; it = it->next) {
         if (it->size < mSize) continue;
         if (it->isAlloced) continue;
@@ -62,7 +72,7 @@ int user_malloc(const string& var, int mSize) {
 
         if (size == mSize) {
             it->isAlloced = true;
-            alloced[var] = it;
+            Hash[key] = it;
             return addr;
         }
 
@@ -80,22 +90,23 @@ int user_malloc(const string& var, int mSize) {
         next->prev = remain;
 
         it->isAlloced = true;
-        alloced[var] = it;
+        Hash[key] = it;
         return addr;
     }
 
-    alloced[var] = nullptr;
+    Hash[key] = nullptr;
     return 0;
 };
 
 void user_free(const string& var) {
-    if (!alloced[var]) return;
+    int key = get_hash(var);
+    if (!Hash[key]) return;
 
-    Memory *mem = alloced[var];
+    Memory *mem = Hash[key];
     Memory *prev = mem->prev;
     Memory *next = mem->next;
 
-    alloced[var] = nullptr;
+    Hash[key] = nullptr;
     mem->isAlloced = false;
     if (!prev->isAlloced) {
         prev->next = next;
@@ -114,8 +125,9 @@ void user_free(const string& var) {
 }
 
 void user_print(const string& var) {
-    if (!alloced[var]) cout << 0 << endl;
-    else cout << alloced[var]->addr << endl;
+    int key = get_hash(var);
+    if (!Hash[key]) cout << 0 << endl;
+    else cout << Hash[key]->addr << endl;
 }
 
 void solve() {
