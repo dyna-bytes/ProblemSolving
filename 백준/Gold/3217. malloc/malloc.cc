@@ -1,45 +1,49 @@
-#include<iostream>
-#include<algorithm>
-#include<vector>
-#include<set>
-#include<map>
-#include<unordered_set>
-#include<unordered_map>
-#include <string>
+#include <iostream>
+#include <bits/stdc++.h>
 using namespace std;
-typedef vector<int> vint;
-const int MAX = 1e5;
 #define FASTIO ios::sync_with_stdio(0), cin.tie(0), cout.tie(0)
 #define endl '\n'
-#define debug(x) cout << "[debug] " << #x << " is " << x << endl;
+// #define DBG
+#ifdef DBG
+#define debug(x) cout << #x << " is " << x << endl;
+#else
+#define debug(x)
+#endif
+
+const int MAX_SIZE = 1e5;
 
 struct Memory {
-    int index;
+    int addr;
     int size;
-    bool isLocked = false;
-    Memory* prev = nullptr;
-    Memory* next = nullptr;
-};
+    bool isAlloced = false;
+    struct Memory *prev = nullptr;
+    struct Memory *next = nullptr;
+} pool[MAX_SIZE + 5];
 
-Memory* head;
-Memory* tail;
-unordered_map<string, Memory*> locked;
+int sp = 0;
+struct Memory *pool_alloc() {
+    return &pool[sp++];
+}
+
+struct Memory *head;
+struct Memory *tail;
+unordered_map<string, Memory*> alloced;
 
 void init() {
-    head = new Memory();
-    tail = new Memory();
-    Memory* memory = new Memory();
+    head = pool_alloc();
+    tail = pool_alloc();
+    Memory *memory = pool_alloc();
 
-    head->index = 0;
+    head->addr = 0;
     head->size = 0;
-    head->isLocked = true;
+    head->isAlloced = true;
 
-    tail->index = MAX + 1;
+    tail->addr = MAX_SIZE + 1;
     tail->size = 0;
-    tail->isLocked = true;
+    tail->isAlloced = true;
 
-    memory->index = 1;
-    memory->size = MAX;
+    memory->addr = 1;
+    memory->size = MAX_SIZE;
 
     head->next = memory;
     memory->prev = head;
@@ -48,111 +52,109 @@ void init() {
     tail->prev = memory;
 }
 
-int malloc(string var, int mSize) {
-    for (Memory* it = head; it != tail; it = it->next) {
+int user_malloc(const string& var, int mSize) {
+    for (Memory *it = head; it != tail; it = it->next) {
         if (it->size < mSize) continue;
-        if (it->isLocked) continue;
+        if (it->isAlloced) continue;
 
-        int idx = it->index;
+        int addr = it->addr;
         int size = it->size;
 
         if (size == mSize) {
-            it->isLocked = true;
-            locked[var] = it;
-            return idx;
+            it->isAlloced = true;
+            alloced[var] = it;
+            return addr;
         }
 
-        Memory* nextmem = it->next;
-        Memory* mem = new Memory();
-        
+        Memory *next = it->next;
+        Memory *remain = pool_alloc();
+
         it->size = mSize;
-        mem->size = size - mSize;
-        mem->index = idx + mSize;
+        remain->size = size - mSize;
+        remain->addr = addr + mSize;
 
-        it->next = mem;
-        mem->prev = it;
+        it->next = remain;
+        remain->prev = it;
 
-        mem->next = nextmem;
-        nextmem->prev = mem;
+        remain->next = next;
+        next->prev = remain;
 
-        it->isLocked = true;
-        locked[var] = it;
-        return idx;
+        it->isAlloced = true;
+        alloced[var] = it;
+        return addr;
     }
 
-    locked[var] = nullptr;
+    alloced[var] = nullptr;
     return 0;
-}
+};
 
-void free(string var) {
-    if (locked[var] == nullptr) return;
+void user_free(const string& var) {
+    if (!alloced[var]) return;
 
-    Memory* lock = locked[var];
-    Memory* prevmem = lock->prev;
-    Memory* nextmem = lock->next;
+    Memory *mem = alloced[var];
+    Memory *prev = mem->prev;
+    Memory *next = mem->next;
 
-    lock->isLocked = false;
-    locked[var] = nullptr;
+    alloced[var] = nullptr;
+    mem->isAlloced = false;
+    if (!prev->isAlloced) {
+        prev->next = next;
+        next->prev = prev;
 
-    if (prevmem->isLocked == false) {
-        prevmem->next = nextmem;
-        nextmem->prev = prevmem;
-
-        prevmem->size += lock->size;
-        lock = prevmem;
+        prev->size += mem->size;
+        mem = prev;
     }
 
-    if (nextmem->isLocked == false) {
-        lock->next = nextmem->next;
-        nextmem->next->prev = lock;
+    if (!next->isAlloced) {
+        mem->next = next->next;
+        next->next->prev = mem;
 
-        lock->size += nextmem->size;
+        mem->size += next->size;
     }
 }
 
-void print(string var) {
-    if (locked[var] == nullptr) cout << 0 << endl;
-    else cout << locked[var]->index << endl;
+void user_print(const string& var) {
+    if (!alloced[var]) cout << 0 << endl;
+    else cout << alloced[var]->addr << endl;
 }
 
-int main() {
-    FASTIO;
-    int N; cin >> N;
-    init();
+void solve() {
+    int n;
+    cin >> n;
 
-    string s_malloc("malloc");
-    string s_free("free");
-    string s_print("print");
-
-    for (int i = 0; i < N; i++) {
+    const string s_malloc = "malloc";
+    const string s_free = "free";
+    const string s_print = "print";
+    for (int i = 0; i < n; i++) {
         string inp; cin >> inp;
         int l_par = 0, r_par = 0;
         while (inp[l_par] != '(') l_par++;
         while (inp[r_par] != ')') r_par++;
 
-        int m = inp.find(s_malloc);
-        if (m != string::npos) {
-            string var = inp.substr(0, m - 1);
-            int size = stoi(inp.substr(l_par + 1, r_par - l_par - 1));
-            //debug(var);
-            malloc(var, size);
-            continue;
-        }
-
-        int f = inp.find(s_free);
-        if (f != string::npos) {
-            string var = inp.substr(l_par + 1, r_par - l_par - 1);
-            //debug(var);
-            free(var);
-            continue;
-        }
-
-        int p = inp.find(s_print);
-        if (p != string::npos) {
-            string var = inp.substr(l_par + 1, r_par - l_par - 1);
-            //debug(var);
-            print(var);
-        }
+        int s_idx;
+        string var;
+        int size;
+        if ((s_idx = inp.find(s_malloc)) != string::npos) {
+            var = inp.substr(0, s_idx - 1);
+            size = stoi(inp.substr(l_par + 1, r_par - l_par - 1));
+            debug(var);
+            debug(size);
+            user_malloc(var, size);
+        } else if ((s_idx = inp.find(s_free)) != string::npos) {
+            var = inp.substr(l_par + 1, r_par - l_par - 1);
+            debug(var);
+            user_free(var);
+        } else if ((s_idx = inp.find(s_print)) != string::npos) {
+            var = inp.substr(l_par + 1, r_par - l_par - 1);
+            debug(var);
+            user_print(var);
+        } else
+            cout << "Error inp " << inp << endl;
     }
+}
+int main() {
+    FASTIO;
+    init();
+    solve();
     return 0;
 }
