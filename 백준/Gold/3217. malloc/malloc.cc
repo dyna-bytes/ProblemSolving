@@ -79,16 +79,13 @@ Block* coalesce(int curr_addr) {
     int prev_addr = curr->prev_addr;
     bool prev_is_free = (prev_addr > 0 && !pool[prev_addr].is_alloc);
 
-    // Case 2: 뒤쪽(Next)만 Free
     if (!prev_is_free && next_is_free) {
         remove_from_freelist(&pool[next_addr]);
         curr->size += pool[next_addr].size;
 
         int next_next_addr = curr_addr + curr->size;
         if (next_next_addr <= MAX_MEM + 1) pool[next_next_addr].prev_addr = curr_addr;
-    } 
-    // Case 3: 앞쪽(Prev)만 Free
-    else if (prev_is_free && !next_is_free) {
+    } else if (prev_is_free && !next_is_free) {
         Block* prev = &pool[prev_addr];
         remove_from_freelist(prev);
 
@@ -97,11 +94,8 @@ Block* coalesce(int curr_addr) {
         curr_addr = prev_addr;
 
         int next_next_addr = curr_addr + curr->size;
-        // [FIX] Sentinel Update
         if (next_next_addr <= MAX_MEM + 1) pool[next_next_addr].prev_addr = curr_addr;
-    } 
-    // Case 4: 양쪽 다 Free
-    else if (prev_is_free && next_is_free) {
+    } else if (prev_is_free && next_is_free) {
         Block* prev = &pool[prev_addr];
         Block* next = &pool[next_addr];
         remove_from_freelist(prev);
@@ -201,8 +195,7 @@ void user_free(const string& var) {
     int key = get_hash(var);
     if (!Hash[key]) return; 
 
-    int addr = Hash[key];
-    
+    int addr = Hash[key];    
     pool[addr].is_alloc = false; 
     Hash[key] = 0; 
     
