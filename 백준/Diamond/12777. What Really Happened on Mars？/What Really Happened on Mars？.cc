@@ -25,6 +25,9 @@ const char LOCK = 'L';
 const char UNLOCK = 'U';
 const char CALC = 'C';
 
+struct Task;
+struct Resource;
+
 struct Instruction {
     char op;
     int val;
@@ -39,8 +42,8 @@ struct Task {
     int pc;
     vector<Instruction> instructions;
 
-    vector<int> held_resources;
-    set<int> blocking_tasks;
+    vector<Resource*> held_resources;
+    set<Task*> blocking_tasks;
     int finish_time;
     bool is_blocked;
 };
@@ -48,38 +51,36 @@ struct Task {
 struct Resource {
     int id;
     int prio_ceiling;
-    int owner_task;
+    Task* owner_task;
 };
 
-bool check_block(int t_id, int r_id, vector<Task>& tasks, vector<Resource>& resources) {
+bool check_block(Task& task, Resource& resource, vector<Task>& tasks, vector<Resource>& resources) {
     bool blocked_now = false;
-    Task& t = tasks[t_id];
 
-    int owner = resources[r_id].owner_task;
-    if (owner && owner != t_id) {
-        tasks[owner].blocking_tasks.insert(t_id);
+    Task* owner = resource.owner_task;
+    if (owner && owner != &task) {
+        owner->blocking_tasks.insert(&task);
         blocked_now = true;
     }
 
-    for (int r = 1; r < resources.size(); r++) {
-        int r_owner = resources[r].owner_task;
-        if (r_owner && r_owner != t_id) {
-            if (resources[r].prio_ceiling >= t.curr_prio) {
-                tasks[r_owner].blocking_tasks.insert(t_id);
+    for (Resource& resource: resources) {
+        Task* r_owner = resource.owner_task;
+        if (r_owner && r_owner != &task) {
+            if (resource.prio_ceiling >= task.curr_prio) {
+                r_owner->blocking_tasks.insert(&task);
                 blocked_now = true;
             }
         }
     }
 
-    return (t.is_blocked = blocked_now);
+    return (task.is_blocked = blocked_now);
 }
 
-int get_priority(int task_id, vector<Task>& tasks) {
-    Task& t = tasks[task_id];
-    int max_prio = t.base_prio;
+int get_priority(Task& task) {
+    int max_prio = task.base_prio;
 
-    for (int blocked_id: t.blocking_tasks)
-        max_prio = max(max_prio, get_priority(blocked_id, tasks));
+    for (Task* blocked_task: task.blocking_tasks)
+        max_prio = max(max_prio, get_priority(*blocked_task));
     return max_prio;
 }
 
@@ -97,28 +98,28 @@ vector<int> solve(int T, int R, vector<Task>& tasks, vector<Resource>& resources
         while (true) {
             bool changed = false;
 
-            for (int i = 1; i <= T; i++)
-                tasks[i].blocking_tasks.clear();
+            for (Task& task: tasks)
+                task.blocking_tasks.clear();
 
-            for (int i = 1; i <= T; i++) {
-                Task& t = tasks[i];
-                if (!is_running(t, tick)) {
-                    t.is_blocked = false;
+            for (Task& task: tasks) {
+                if (!is_running(task, tick)) {
+                    task.is_blocked = false;
                     continue;
                 }
 
-                if (t.pc < t.instructions.size() && t.instructions[t.pc].op == LOCK) {
-                    int r_id = t.instructions[t.pc].val;
-                    t.is_blocked = check_block(i, r_id, tasks, resources);
+                if (task.pc < task.instructions.size() && task.instructions[task.pc].op == LOCK) {
+                    int r_id = task.instructions[task.pc].val;
+                    Resource& resource = resources[r_id];
+                    task.is_blocked = check_block(task, resource, tasks, resources);
                 } else
-                    t.is_blocked = false;
+                    task.is_blocked = false;
             }
 
-            for (int i = 1; i <= T; i++) {
-                if (is_running(tasks[i], tick)) {
-                    int new_prio = get_priority(i, tasks);
-                    if (tasks[i].curr_prio != new_prio) {
-                        tasks[i].curr_prio = new_prio;
+            for (Task& task: tasks) {
+                if (is_running(task, tick)) {
+                    int new_prio = get_priority(task);
+                    if (task.curr_prio != new_prio) {
+                        task.curr_prio = new_prio;
                         changed = true;
                     }
                 }
@@ -127,37 +128,36 @@ vector<int> solve(int T, int R, vector<Task>& tasks, vector<Resource>& resources
             if (!changed) break;
         }
 
-        int runner_id = -1;
+        Task* runner_task = nullptr;
         int max_prio = -1;
-        for (int i = 1; i <= T; i++) {
-            Task& t = tasks[i];
-            if (is_running(t, tick) && !t.is_blocked) {
-                if (t.curr_prio > max_prio) {
-                    max_prio = t.curr_prio;
-                    runner_id = i;
+        for (Task& task: tasks) {
+            if (is_running(task, tick) && !task.is_blocked) {
+                if (task.curr_prio > max_prio) {
+                    max_prio = task.curr_prio;
+                    runner_task = &task;
                 }
             }
         }
 
-        if (runner_id == -1) {
+        if (runner_task == nullptr) {
             tick++;
             continue;
         }
 
-        Task& runner = tasks[runner_id];
+        Task& runner = *runner_task;
         Instruction& inst = runner.instructions[runner.pc];
 
         if (inst.op == CALC) {
             tick++;
             runner.pc++;
         } else if (inst.op == LOCK) {
-            int r_id = inst.val;
-            resources[r_id].owner_task = runner_id;
-            runner.held_resources.push_back(r_id);
+            Resource& resource = resources[inst.val];
+            resource.owner_task = runner_task;
+            runner.held_resources.push_back(&resource);
             runner.pc++;
         } else if (inst.op == UNLOCK) {
-            int r_id = inst.val;
-            resources[r_id].owner_task = 0;
+            Resource& resource = resources[inst.val];
+            resource.owner_task = nullptr;
             runner.held_resources.pop_back();
             runner.pc++;
         }
@@ -168,7 +168,7 @@ vector<int> solve(int T, int R, vector<Task>& tasks, vector<Resource>& resources
         }
     }
 
-    for (int i = 1; i <= T; i++) ret[i-1] = tasks[i].finish_time;
+    for (int i = 0; i < T; i++) ret[i] = tasks[i].finish_time;
     return ret;
 }
 
@@ -177,14 +177,14 @@ int main() {
     int T, R;
     cin >> T >> R;
 
-    vector<Task> tasks(T + 1); // one-base indexing
-    vector<Resource> resources(R + 1); // one-base indexing
-    for (int i = 1; i <= R; i++)
-        resources[i].id = i;
+    vector<Task> tasks(T);
+    vector<Resource> resources(R);
+    for (int i = 0; i < R; i++)
+        resources[i].id = i + 1;
 
-    for (int i = 1; i <= T; i++) {
+    for (int i = 0; i < T; i++) {
         Task& t = tasks[i];
-        t.id = i;
+        t.id = i + 1;
         cin >> t.start_time >> t.base_prio;
 
         int inst_size; cin >> inst_size;
@@ -199,12 +199,14 @@ int main() {
             int val = stoi(in.substr(1));
 
             if (op == 'L') {
+                val--; // zero based indexing
                 t.instructions.push_back({op, val});
 
                 resources[val].prio_ceiling = max(
                     resources[val].prio_ceiling, t.base_prio
                 );
             } else if (op == 'U') {
+                val--;
                 t.instructions.push_back({op, val});
             } else if (op == 'C') {
                 for (int m = 0; m < val; m++)
