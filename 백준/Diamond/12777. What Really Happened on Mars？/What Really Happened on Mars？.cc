@@ -43,7 +43,7 @@ struct Task {
     vector<Instruction> instructions;
 
     vector<Resource*> held_resources;
-    set<Task*> blocking_tasks;
+    set<Task*> blocking_tasks; // 나 때문에 멈춰있는 태스크들
     int finish_time;
     bool is_blocked;
 };
@@ -54,118 +54,198 @@ struct Resource {
     Task* owner_task;
 };
 
-bool check_block(Task& task, Resource& resource, vector<Task>& tasks, vector<Resource>& resources) {
-    bool blocked_now = false;
+struct System {
+    int tick;
+    int finished_count;
+    int sys_ceiling_val;
+    Task* sys_ceiling_owner;
+};
 
-    Task* owner = resource.owner_task;
-    if (owner && owner != &task) {
-        owner->blocking_tasks.insert(&task);
-        blocked_now = true;
-    }
+// --- Helper Functions ---
 
-    for (Resource& resource: resources) {
-        Task* r_owner = resource.owner_task;
-        if (r_owner && r_owner != &task) {
-            if (resource.prio_ceiling >= task.curr_prio) {
-                r_owner->blocking_tasks.insert(&task);
-                blocked_now = true;
-            }
-        }
-    }
-
-    return (task.is_blocked = blocked_now);
+// 태스크가 현재 실행 가능한 상태인지 (시작 시간 지남 + 미완료)
+bool is_runnable(const Task& t, int tick) {
+    return t.finish_time == 0 && t.start_time <= tick;
 }
 
-int get_priority(Task& task) {
+// 재귀적으로 자신을 차단한 태스크들을 따라가며 최대 우선순위 계산 (Priority Inheritance)
+int calculate_effective_priority(Task& task) {
     int max_prio = task.base_prio;
-
-    for (Task* blocked_task: task.blocking_tasks)
-        max_prio = max(max_prio, get_priority(*blocked_task));
+    for (Task* blocked_task : task.blocking_tasks) {
+        max_prio = max(max_prio, calculate_effective_priority(*blocked_task));
+    }
     return max_prio;
 }
 
-vector<int> solve(int T, int R, vector<Task>& tasks, vector<Resource>& resources) {
-    int tick = 0;
-    int finished_count = 0;
-    vector<int> ret(T);
+// --- Logic Steps ---
 
-    auto is_running = [](Task& t, int tick) {
-        return t.finish_time == 0 && t.start_time <= tick;
-    };
+// [Step 1] 현재 시스템 천장 (System Priority Ceiling) 계산
+// 반환값: {최고 천장 값, 그 리소스를 가진 태스크 포인터}
+void get_system_ceiling(vector<Resource>& resources, System& sys) {
+    int max_ceil = -1;
+    Task* ceiling_owner = nullptr;
+
+    for (Resource& res: resources) {
+        if (res.owner_task) {
+            if (res.prio_ceiling > max_ceil) {
+                max_ceil = res.prio_ceiling;
+                ceiling_owner = res.owner_task;
+            }
+        }
+    }
+
+    sys.sys_ceiling_val = max_ceil;
+    sys.sys_ceiling_owner = ceiling_owner;
+}
+
+// 차단 관계 형성
+void set_blocking_graph(vector<Task>& tasks, vector<Resource>& resources, System& sys) {
+    // 1. 시스템 천장 계산 (이번 틱에서 불변)
+    int sys_ceiling_val = sys.sys_ceiling_val;
+    Task* sys_ceiling_owner = sys.sys_ceiling_owner;
+
+    // 2. 차단 그래프 (Dependency Graph) 구축
+    for (Task& task: tasks) {
+        if (!is_runnable(task, sys.tick)) continue;
+
+        if (task.pc < task.instructions.size() && task.instructions[task.pc].op == LOCK) {
+            int r_id = task.instructions[task.pc].val;
+            Resource& target_res = resources[r_id];
+
+            Task* direct_owner = target_res.owner_task;
+
+            // A. 직접 차단 (Direct Blocking)
+            // 내가 잡으려는 리소스를 다른 태스크가 잡고 있는 경우
+            if (direct_owner && direct_owner != &task) {
+                direct_owner->blocking_tasks.insert(&task);
+                task.is_blocked = true;
+            }
+            // B. 천장 차단 (Priority Ceiling Blocking)
+            // 내가 그 리소스를 가지고 있지 않고, 내 우선순위가 시스템 천장보다 높지 않다면
+            else if (sys_ceiling_owner && sys_ceiling_owner != &task) {
+                if (task.curr_prio <= sys_ceiling_val) {
+                    sys_ceiling_owner->blocking_tasks.insert(&task);
+                    task.is_blocked = true;
+                }
+            }
+        }
+    }
+}
+
+void unset_blocking_graph(vector<Task>& tasks, vector<Resource>& resources, System& sys) {
+    for (Task& task: tasks) {
+        if (task.is_blocked && is_runnable(task, sys.tick)) {
+            int r_id = task.instructions[task.pc].val;
+            Resource& target_res = resources[r_id];
+
+            // 직접 차단이 아닌 경우 (= 천장 차단인 경우)
+            if (target_res.owner_task == nullptr) {
+                if (task.curr_prio > sys.sys_ceiling_val) {
+                    // 상속받은 우선순위가 천장을 뚫음 -> 차단 해제
+                    sys.sys_ceiling_owner->blocking_tasks.erase(&task);
+                    task.is_blocked = false;
+                }
+            }
+        }
+    }
+}
+
+// [Step 2 & 3] 차단 관계 형성 및 우선순위 갱신
+void synchronize_state(vector<Task>& tasks, vector<Resource>& resources, System& sys) {
+    // 1. 차단 관계 초기화
+    for (Task& task: tasks) {
+        task.blocking_tasks.clear();
+        task.is_blocked = false;
+        task.curr_prio = task.base_prio;
+    }
+
+    // 2. 시스템 천장 계산
+    get_system_ceiling(resources, sys);
+
+    // 3. 차단 그래프 구축
+    set_blocking_graph(tasks, resources, sys);
+
+    // 4. 우선순위 상속
+    for (Task& task: tasks) {
+        if (is_runnable(task, sys.tick))
+            task.curr_prio = calculate_effective_priority(task);
+    }
+
+    // 5. 우선순위 상속 후 천장 차단 재검사
+    unset_blocking_graph(tasks, resources, sys);
+}
+
+// [Step 3] 실행할 태스크 선정 (Scheduler)
+Task* select_next_task(vector<Task>& tasks, System& sys) {
+    Task* candidate = nullptr;
+    int max_prio = -1;
+
+    for (Task& task : tasks) {
+        // 실행 가능하고 차단되지 않은 태스크 중 우선순위가 가장 높은 것
+        if (is_runnable(task, sys.tick) && !task.is_blocked) {
+            if (task.curr_prio > max_prio) {
+                max_prio = task.curr_prio;
+                candidate = &task;
+            }
+        }
+    }
+    return candidate;
+}
+
+// [Step 4] 명령어 실행
+void execute_instruction(Task* runner, vector<Resource>& resources, System& sys) {
+    // 실행할 태스크가 없으면 시간만 흐름 (Idle)
+    if (runner == nullptr) {
+        sys.tick++;
+        return;
+    }
+
+    Instruction& inst = runner->instructions[runner->pc];
+
+    if (inst.op == CALC) {
+        // 계산은 시간 소모
+        sys.tick++;
+        runner->pc++;
+    }
+    else if (inst.op == LOCK) {
+        // 락 획득 (시스템 로직상 시간 소모 0 가정)
+        Resource& resource = resources[inst.val];
+        resource.owner_task = runner;
+        runner->held_resources.push_back(&resource);
+        runner->pc++;
+    }
+    else if (inst.op == UNLOCK) {
+        // 락 해제 (시간 소모 0)
+        Resource& resource = resources[inst.val];
+        resource.owner_task = nullptr;
+        runner->held_resources.pop_back();
+        runner->pc++;
+    }
+
+    // 태스크 완료 체크
+    if (runner->pc >= runner->instructions.size()) {
+        runner->finish_time = sys.tick;
+        sys.finished_count++;
+    }
+}
+
+// --- Main Solver ---
+
+vector<int> solve(int T, int R, vector<Task>& tasks, vector<Resource>& resources) {
+    vector<int> ret(T);
+    System sys = {};
+    int& tick = sys.tick = 0;
+    int& finished_count = sys.finished_count = 0;
 
     while (finished_count < T) {
+        // 1. 차단 상태 및 우선순위 최신화
+        synchronize_state(tasks, resources, sys);
 
-        while (true) {
-            bool changed = false;
+        // 2. 다음에 실행할 태스크 선정
+        Task* runner = select_next_task(tasks, sys);
 
-            for (Task& task: tasks)
-                task.blocking_tasks.clear();
-
-            for (Task& task: tasks) {
-                if (!is_running(task, tick)) {
-                    task.is_blocked = false;
-                    continue;
-                }
-
-                if (task.pc < task.instructions.size() && task.instructions[task.pc].op == LOCK) {
-                    int r_id = task.instructions[task.pc].val;
-                    Resource& resource = resources[r_id];
-                    task.is_blocked = check_block(task, resource, tasks, resources);
-                } else
-                    task.is_blocked = false;
-            }
-
-            for (Task& task: tasks) {
-                if (is_running(task, tick)) {
-                    int new_prio = get_priority(task);
-                    if (task.curr_prio != new_prio) {
-                        task.curr_prio = new_prio;
-                        changed = true;
-                    }
-                }
-            }
-
-            if (!changed) break;
-        }
-
-        Task* runner_task = nullptr;
-        int max_prio = -1;
-        for (Task& task: tasks) {
-            if (is_running(task, tick) && !task.is_blocked) {
-                if (task.curr_prio > max_prio) {
-                    max_prio = task.curr_prio;
-                    runner_task = &task;
-                }
-            }
-        }
-
-        if (runner_task == nullptr) {
-            tick++;
-            continue;
-        }
-
-        Task& runner = *runner_task;
-        Instruction& inst = runner.instructions[runner.pc];
-
-        if (inst.op == CALC) {
-            tick++;
-            runner.pc++;
-        } else if (inst.op == LOCK) {
-            Resource& resource = resources[inst.val];
-            resource.owner_task = runner_task;
-            runner.held_resources.push_back(&resource);
-            runner.pc++;
-        } else if (inst.op == UNLOCK) {
-            Resource& resource = resources[inst.val];
-            resource.owner_task = nullptr;
-            runner.held_resources.pop_back();
-            runner.pc++;
-        }
-
-        if (runner.pc >= runner.instructions.size()) {
-            runner.finish_time = tick;
-            finished_count++;
-        }
+        // 3. 명령어 실행 (Tick 증가 포함)
+        execute_instruction(runner, resources, sys);
     }
 
     for (int i = 0; i < T; i++) ret[i] = tasks[i].finish_time;
