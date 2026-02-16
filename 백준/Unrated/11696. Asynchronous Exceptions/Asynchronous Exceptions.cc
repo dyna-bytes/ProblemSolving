@@ -5,750 +5,870 @@ using namespace std;
 #define endl '\n'
 #define FASTIO ios::sync_with_stdio(0), cin.tie(0)
 
-// #define DBG
-#ifdef DBG
-#define debug(x) cout << "[" << __func__ << "](" << __LINE__ << ") " << #x << " is " << x << endl;
-#define debugVect(v) do { \
-    cout << "[" << __func__ << "](" << __LINE__ << ") " << #v << " is |\t"; \
-    for (auto e: v) cout << e << "|\t" ; \
-    cout << endl; \
-} while (0)
-#define debugVect2d(vv) do { \
-    cout << "[" << __func__ << "](" << __LINE__ << ") " << #vv << " is " << endl; \
-    for (auto v: vv) debugVect(v); \
-} while (0)
+/* Architecture-specific macros */
+#ifndef likely
+#define likely(x)		__builtin_expect(!!(x), 1)
+#define unlikely(x)		__builtin_expect(!!(x), 0)
+#endif
+
+#ifndef pid_t
+typedef int pid_t;
+#endif
+
+/* Debug Macros */
+#define KERNEL_DBG 0
+#if KERNEL_DBG
+#define kprintk(fmt, ...) printf("[%s:%d] " fmt, __func__, __LINE__, ##__VA_ARGS__)
+#define WARN_ON(cond) ((cond) ? (fprintf(stderr, "WARN: %s:%d\n", __func__, __LINE__), 1) : 0)
 #else
-#define debug(x)
-#define debugVect(v)
-#define debugVect2d(vv)
+#define kprintk(fmt, ...)
+#define WARN_ON(cond)
 #endif
 
+/* ================================================================
+ * [Kernel Constants & Return Codes]
+ * ================================================================ */
+#define MAX_CPUS				100
+#define ESYSCALL_EBUSY			(-1)
+#define ESYSCALL_PANIC			(-2)
+#define EOK						(0)
 
-// ==========================================
-// [Kernel Constants & Enums]
-// ==========================================
-#define MAX_CPUS 100
+/* Task State Bits (Linux kernel style) */
+#define __TASK_RUNNING			0
+#define __TASK_READY			1
+#define __TASK_INTERRUPTIBLE	2
+#define __TASK_DEAD				3
+#define __TASK_ZOMBIE			4
 
-enum TaskState {
-    TASK_RUNNING = 0,
-    TASK_READY,
-    TASK_INTERRUPTIBLE, // Waiting for Semaphore (Blocked)
-    TASK_DEAD,          // Terminated
-    TASK_ZOMBIE         // Killed but resources not fully reclaimed (optional)
+enum task_state_t {
+	TASK_RUNNING		= (1 << __TASK_RUNNING),
+	TASK_READY			= (1 << __TASK_READY),
+	TASK_INTERRUPTIBLE	= (1 << __TASK_INTERRUPTIBLE),
+	TASK_DEAD			= (1 << __TASK_DEAD),
+	TASK_ZOMBIE			= (1 << __TASK_ZOMBIE)
 };
 
-enum OpType {
-    OP_COMPUTE, OP_FORK_R, OP_FORK_I, OP_YIELD, OP_KILL,
-    OP_LOCK, OP_UNLOCK, OP_LOOP, OP_NEXT, OP_END
+/* Opcode types */
+enum instr_opcode_t {
+	OP_COMPUTE = 0,
+	OP_FORK_R,
+	OP_FORK_I,
+	OP_YIELD,
+	OP_KILL,
+	OP_LOCK,
+	OP_UNLOCK,
+	OP_LOOP,
+	OP_NEXT,
+	OP_END
 };
 
-// ==========================================
-// [Data Structures]
-// ==========================================
+/* ================================================================
+ * [Data Structures - Kernel Objects]
+ * ================================================================ */
 
-// Instruction Format (Machine Code)
-struct Instruction {
-    OpType opcode;
-    string s_operand1;
-    string s_operand2;
-    int i_operand;
-
-    int jump_pc;
+/* Machine Instruction Format */
+struct instr {
+	instr_opcode_t opcode;
+	string s_operand1;
+	string s_operand2;
+	int i_operand;
+	int jump_pc;		/* For LOOP/NEXT control flow */
 };
 
-// Thread Control Block
-struct task_struct {
-    int pid = 0;                // Thread ID
-    int tgid = 0;               // Task Group ID (Virtual Thread Group for Mutual Exclusion)
-    TaskState state = TASK_RUNNING;
-
-    int cpu_id = -1;             // 현재 실행 중인 CPU ID (-1 if not running)
-    int remaining_computation = 0;  // 남은 Clock (Context Save/Restore)
-
-    // Context (Registers)
-    int pc = 0;                 // Program Counter
-    string code_block_name;     // 현재 실행 중인 코드 블록 이름
-    map<string, int> registers; // Local variables (thread-vars)
-
-    // For Semaphore Wait Queue (Linked List Node 역할)
-    string waiting_sem;
-    int waiting_amount = 0;
-
-    // Statistics
-    int finish_time = 0;
-
-    // 현재 중첩된 루프들의 남은 반복 횟수를 저장하는 스택
-    vector<int> loop_counts;
-    bool pending_kill = false;
-
-    bool operator==(const task_struct& other) const {
-        // Comparison logic here, e.g.:
-        return this->pid == other.pid;
-    }
-};
-
-// Semaphore Object
+/* Semaphore Object (IPC) */
 struct semaphore {
-    int value;
-    deque<int> wait_list; // Waiting Tasks (PIDs)
+	int count;			/* Semaphore count */
+	deque<int> wait_q;	/* Waiters queue (PIDs) */
 };
 
-// ==========================================
-// [Kernel Subsystem]
-// ==========================================
+/* Thread/Task Control Block (Process Descriptor) */
+struct task_struct {
+	/* Identification */
+	pid_t pid;			/* Process ID */
+	pid_t tgid;			/* Thread Group ID (for forkI mutual exclusion) */
 
-class Kernel {
+	/* Scheduler state */
+	enum task_state_t state;	/* Current task state */
+	int cpu_id;			/* Currently running CPU (-1 if not running) */
+	int remaining_ticks;	/* Remaining compute ticks in current slice */
+
+	/* CPU Context (Virtual Machine State) */
+	unsigned int pc;	/* Program Counter */
+	string code_section;	/* Code section name */
+	map<string, int> regs;	/* Register file (local variables) */
+	vector<int> loop_stack;	/* Nested loop iteration counters */
+
+	/* IPC state (Semaphore wait) */
+	string waiting_sem;
+	int wait_amount;
+
+	/* Lifecycle */
+	unsigned int exit_time;	/* Time of process termination */
+	bool deferred_kill;		/* Deferred termination flag */
+
+	/* Constructors */
+	task_struct()
+		: pid(0), tgid(0), state(TASK_RUNNING), cpu_id(-1),
+		  remaining_ticks(0), pc(0), wait_amount(0), exit_time(0), deferred_kill(false) {}
+
+	explicit task_struct(pid_t _pid, pid_t _tgid, enum task_state_t _state)
+		: pid(_pid), tgid(_tgid), state(_state), cpu_id(-1),
+		  remaining_ticks(0), pc(0), wait_amount(0), exit_time(0), deferred_kill(false) {}
+
+	bool operator==(const task_struct& other) const {
+		return this->pid == other.pid;
+	}
+};
+
+/* ================================================================
+ * [Kernel Subsystem]
+ * ================================================================ */
+
+class kernel {
 protected:
-    // System Resources
-    int sys_clock;
-    int max_time;
-    int max_threads;
-    int nr_cpus;
-    int time_slice;
+	/* System Configuration */
+	unsigned int sys_jiffies;		/* System timer (jiffies) */
+	unsigned int max_jiffies;		/* Maximum simulation time */
+	int max_nr_tasks;				/* Task limit */
+	int nr_cpus;					/* Number of CPUs */
+	unsigned int time_slice;		/* Time slice per task (RR scheduling) */
 
-    // Memory & Process Management
-    map<string, vector<Instruction>> text_segment;  // Code memory
-    map<string, semaphore> sem_table;               // IPC table
+	/* Memory Management */
+	map<string, vector<instr>> text_segments;	/* Code sections */
+	map<string, semaphore> sem_table;			/* Semaphore objects */
 
-    // Scheduler Structures
-    deque<task_struct*> runqueue;           // Global Ready Queue
-    task_struct* current[MAX_CPUS];         // Per-CPU current task
-    map<int, task_struct> task_table;       // Process Table (All tasks) {pid: task}
+	/* Process/Task Management */
+	deque<task_struct*> runq;		/* Global run queue */
+	task_struct* current_task[MAX_CPUS];	/* Per-CPU current task pointer */
+	map<pid_t, task_struct> task_db;	/* Task database (all processes) */
 
-    int next_pid = 1;
-    bool system_panic = false;
+	pid_t next_pid;					/* PID allocator */
+	bool kernel_panic;				/* Panic flag */
 
 public:
-    Kernel(int mt, int mth, int ncpu, int ts)
-        : max_time(mt), max_threads(mth), nr_cpus(ncpu), time_slice(ts) {
-        sys_clock = 0;
-        // CPU 초기화
-        for(int i=0; i<MAX_CPUS; i++) current[i] = nullptr;
-    }
+	kernel(int max_time, int max_threads, int ncpus, int tslice)
+		: sys_jiffies(0), max_jiffies(max_time), max_nr_tasks(max_threads),
+		  nr_cpus(ncpus), time_slice(tslice), next_pid(1), kernel_panic(false) {
+		for (int i = 0; i < MAX_CPUS; i++) {
+			current_task[i] = nullptr;
+		}
+	}
 
-    // ---------------------------------------------------------
-    // [System Call Interface] - 명령어 해석기에서 호출
-    // ---------------------------------------------------------
+	/* ================================================================
+	 * [System Call Interface] - Called by instruction interpreter
+	 * ================================================================ */
 
-    // Process Creation (fork)
-    int sys_fork(task_struct* parent, string var_name, string block_name, bool is_virtual) {
-        int living_threads = 0;
-        for (auto& [pid, t] : task_table)
-            if (t.state != TASK_DEAD) living_threads++;
+	/* do_fork - Process/Thread creation syscall */
+	int do_fork(task_struct *parent, const string &var_name,
+			   const string &block_name, bool is_virtual) {
+		/* Count living processes */
+		int nr_living = 0;
+		for (auto& [_pid, t] : task_db) {
+			if (t.state != TASK_DEAD) nr_living++;
+		}
 
-        if (living_threads >= max_threads)
-            return -1;
+		if (unlikely(nr_living >= max_nr_tasks))
+			return ESYSCALL_EBUSY;
 
-        task_struct task;
-        task.pid = next_pid++;
-        if (is_virtual) {
-            task.tgid = parent->pid;
-        } else {
-            task.tgid = task.pid;
-        }
+		task_struct newtask(next_pid++, 0, TASK_READY);
+		newtask.tgid = is_virtual ? parent->tgid : newtask.pid;
+		newtask.pc = 0;
+		newtask.cpu_id = -1;
+		newtask.code_section = block_name;
+		newtask.remaining_ticks = 0;
+		newtask.wait_amount = 0;
 
-        task.state = TASK_READY;
-        task.pc = 0;
-        task.cpu_id = -1;
-        task.code_block_name = block_name;
-        task.remaining_computation = 0;
-        task.waiting_amount = 0;
+		task_db[newtask.pid] = newtask;
+		runq.push_back(&task_db[newtask.pid]);
+		parent->regs[var_name] = newtask.pid;
 
-        task_table[task.pid] = task;
-        runqueue.push_back(&task_table[task.pid]); // Add to Runqueue
-        parent->registers[var_name] = task.pid;
-        return 0;
-    }
+		return EOK;
+	}
 
-    // Semaphore Operations
-    void sys_lock(task_struct* task, string sem_name, int amount) {
-        semaphore& sem = sem_table[sem_name];
-        if (sem.value >= amount) {
-            sem.value -= amount;
-        } else {
-            task->state = TASK_INTERRUPTIBLE;
-            task->waiting_sem = sem_name;
-            task->waiting_amount = amount;
-            current[task->cpu_id] = nullptr;
-            sem.wait_list.push_back(task->pid);
-        }
-    }
-    void sys_unlock(task_struct* task, string sem_name, int amount) {
-        semaphore& sem = sem_table[sem_name];
-        if (task->state == TASK_INTERRUPTIBLE) {
-            auto& wait_list = sem.wait_list;
-            auto find_it = find(wait_list.begin(), wait_list.end(), task->pid);
-            if (find_it != wait_list.end())
-                wait_list.erase(find_it);
-        }
+	/* do_lock - Semaphore P (acquire) operation */
+	void do_lock(task_struct *task, const string &sem_name, int amount) {
+		semaphore &sem = sem_table[sem_name];
 
-        sem.value += amount;
+		if (sem.count >= amount) {
+			sem.count -= amount;
+		} else {
+			task->state = TASK_INTERRUPTIBLE;
+			task->waiting_sem = sem_name;
+			task->wait_amount = amount;
+			current_task[task->cpu_id] = nullptr;
+			sem.wait_q.push_back(task->pid);
+		}
+	}
 
-        while (!sem.wait_list.empty()) {
-            int next_pid = sem.wait_list.front();
-            task_struct* next = &task_table[next_pid];
+	/* do_unlock - Semaphore V (release) operation */
+	void do_unlock(task_struct *task, const string &sem_name, int amount) {
+		semaphore &sem = sem_table[sem_name];
 
-            if (sem.value < next->waiting_amount) break;
-            sem.value -= next->waiting_amount;
-            next->waiting_amount = 0;
-            next->waiting_sem = "";
-            next->state = TASK_READY;
-            runqueue.push_back(next);
-            sem.wait_list.pop_front();
-        }
-    }
+		if (task->state == TASK_INTERRUPTIBLE) {
+			auto it = find(sem.wait_q.begin(), sem.wait_q.end(), task->pid);
+			if (it != sem.wait_q.end())
+				sem.wait_q.erase(it);
+		}
 
-    // Signal Handling
-    void sys_kill(task_struct* sender, string target_var_name) {
-        if (sender->registers.find(target_var_name) == sender->registers.end()) return;
-        int target_pid = sender->registers[target_var_name];
+		sem.count += amount;
 
-        if (task_table.find(target_pid) == task_table.end()) return;
-        task_struct* target = &task_table[target_pid];
+		/* Wake-up waiters in FIFO order */
+		while (!sem.wait_q.empty()) {
+			pid_t waiter_pid = sem.wait_q.front();
+			task_struct *waiter = &task_db[waiter_pid];
 
-        if (target->state == TASK_RUNNING) {
-            current[target->cpu_id] = nullptr;
-            target->state = TASK_DEAD;
-            target->finish_time = sys_clock;
-        } else if (target->state == TASK_READY) {
-            target->pending_kill = true;
-        } else if (target->state == TASK_INTERRUPTIBLE) {
-            semaphore& sem = sem_table[target->waiting_sem];
-            deque<int>& wait_list = sem.wait_list;
-            auto find_it = find(wait_list.begin(), wait_list.end(), target->pid);
-            if (find_it != wait_list.end())
-                wait_list.erase(find_it);
+			if (sem.count < waiter->wait_amount)
+				break;
 
-            target->state = TASK_READY;
-            target->waiting_sem = "";
-            runqueue.push_back(target);
-            target->pending_kill = true;
-        }
-    }
+			sem.count -= waiter->wait_amount;
+			waiter->wait_amount = 0;
+			waiter->waiting_sem = "";
+			waiter->state = TASK_READY;
+			runq.push_back(waiter);
+			sem.wait_q.pop_front();
+		}
+	}
 
-    // Yield
-    void sys_yield(task_struct* task) {
-        current[task->cpu_id] = nullptr;
-        task->state = TASK_READY;
-        task->cpu_id = -1;
-        runqueue.push_back(task);
-    }
+	/* do_kill - Send SIGKILL to target process */
+	void do_kill(task_struct *sender, const string &target_var) {
+		auto it = sender->regs.find(target_var);
+		if (it == sender->regs.end())
+			return;
 
-    // ---------------------------------------------------------
-    // [Core Kernel Logic] - 사용자 구현 영역
-    // ---------------------------------------------------------
+		pid_t target_pid = it->second;
+		auto task_it = task_db.find(target_pid);
+		if (task_it == task_db.end())
+			return;
 
-    // [TODO] 1. 인터럽트 핸들러: 매 Time Step마다 호출
-    // - Round Robin 스케줄링 정책 적용 (Time Slice 만료 시 선점)
-    void scheduler_tick() {
-        // Hint: if (sys_clock % time_slice == 0) -> Preempt all running tasks
-        if (sys_clock % time_slice == 0) {
-            for (int cpu = 0; cpu < nr_cpus; ++cpu) {
-                if (!current[cpu]) continue;
-                current[cpu]->state = TASK_READY;
-                current[cpu]->cpu_id = -1;
-                runqueue.push_back(current[cpu]);
-                current[cpu] = nullptr;
-            }
-        }
-    }
+		task_struct *target = &task_it->second;
 
-    // [TODO] 2. 메인 스케줄러
-    // - Ready Queue에서 태스크를 꺼내 CPU에 할당 (Dispatcher)
-    // - forkI (Virtual Thread) 상호 배제 제약 조건 검사
-    task_struct* schedule(int cpu) {
-        for (auto it = runqueue.begin(); it != runqueue.end(); ++it) {
-            if (is_group_running((*it)->tgid)) continue; // 상호 배제
+		if (target->state == TASK_RUNNING) {
+			current_task[target->cpu_id] = nullptr;
+			target->state = TASK_DEAD;
+			target->exit_time = sys_jiffies;
+		} else if (target->state == TASK_READY) {
+			target->deferred_kill = true;
+		} else if (target->state == TASK_INTERRUPTIBLE) {
+			semaphore &sem = sem_table[target->waiting_sem];
+			auto w_it = find(sem.wait_q.begin(), sem.wait_q.end(), target->pid);
+			if (w_it != sem.wait_q.end())
+				sem.wait_q.erase(w_it);
 
-            task_struct* task = *it;
-            runqueue.erase(it);
+			target->state = TASK_READY;
+			target->waiting_sem = "";
+			runq.push_back(target);
+			target->deferred_kill = true;
+		}
+	}
 
-            task->state = TASK_RUNNING;
-            task->cpu_id = cpu;
-            current[cpu] = task;
-            return task;
-        }
-        return nullptr;
-    }
+	/* do_yield - Relinquish CPU and go to ready queue */
+	void do_yield(task_struct *task) {
+		current_task[task->cpu_id] = nullptr;
+		task->state = TASK_READY;
+		task->cpu_id = -1;
+		runq.push_back(task);
+	}
 
-    // [Refactoring 1] 지연 종료 로직 분리
-    bool handle_deferred_kill(int cpu, task_struct* task) {
-        if (task && task->pending_kill) {
-            task->state = TASK_DEAD;
-            task->finish_time = sys_clock;
-            current[cpu] = nullptr;
-            return true; // 사형 집행 완료
-        }
-        return false;
-    }
+	/* ================================================================
+	 * [Core Kernel Logic] - Scheduler & Dispatcher
+	 * ================================================================ */
 
-    // [Refactoring 2] 단일 명령어 실행기 분리
-    // - ret: 에러 코드 (system panic 등)
-    // - break_tick: 참조(reference)로 전달하여 현재 틱의 파이프라인을 멈출지 결정
-    int execute_instruction(int cpu, task_struct* task, Instruction& inst, bool& break_tick) {
-        int ret = 0;
-        switch (inst.opcode) {
-            case OP_COMPUTE: {
-                task->remaining_computation = inst.i_operand;
-                task->pc++;
-                break_tick = true;
-                break;
-            }
-            case OP_YIELD: {
-                sys_yield(task);
-                task->pc++;
-                break_tick = true;
-                break;
-            }
-            case OP_LOCK: {
-                sys_lock(task, inst.s_operand1, inst.i_operand);
-                task->pc++;
-                if (task->state == TASK_INTERRUPTIBLE) {
-                    break_tick = true;
-                }
-                break;
-            }
-            case OP_END: {
-                for (auto& [sem_name, sem] : sem_table) {
-                    auto& wait_list = sem.wait_list;
-                    auto find_it = find(wait_list.begin(), wait_list.end(), task->pid);
-                    if (find_it != wait_list.end()) wait_list.erase(find_it);
-                }
-                task->state = TASK_DEAD;
-                task->finish_time = sys_clock;
-                current[cpu] = nullptr;
-                break_tick = true;
-                break;
-            }
-            case OP_LOOP: {
-                if (inst.i_operand == 0) task->pc = inst.jump_pc + 1;
-                else { task->loop_counts.push_back(inst.i_operand); task->pc++; }
-                break;
-            }
-            case OP_NEXT: {
-                int& current_loop = task->loop_counts.back();
-                current_loop--;
-                if (current_loop > 0) task->pc = inst.jump_pc + 1;
-                else { task->loop_counts.pop_back(); task->pc++; }
-                break;
-            }
-            case OP_FORK_R: {
-                ret = sys_fork(task, inst.s_operand1, inst.s_operand2, false);
-                if (ret) return ret;
-                task->pc++; break;
-            }
-            case OP_FORK_I: {
-                ret = sys_fork(task, inst.s_operand1, inst.s_operand2, true);
-                if (ret) return ret;
-                task->pc++; break;
-            }
-            case OP_UNLOCK: {
-                sys_unlock(task, inst.s_operand1, inst.i_operand);
-                task->pc++; break;
-            }
-            case OP_KILL: {
-                sys_kill(task, inst.s_operand1);
-                task->pc++; break;
-            }
-        }
-        return ret;
-    }
+	/* tick_handler - Timer interrupt handler (called each tick) */
+	void tick_handler(void) {
+		/* Round-robin preemption on time slice expiry */
+		if (sys_jiffies % time_slice == 0) {
+			for (int cpu = 0; cpu < nr_cpus; ++cpu) {
+				task_struct *task = current_task[cpu];
+				if (!task) continue;
 
-    // [TODO] 3. 오케스트레이터로 가벼워진 run_cpus
-    int run_cpus() {
-        int ret = 0;
-        for (int cpu = 0; cpu < nr_cpus; ++cpu) {
-            while (true) {
-                task_struct* task = current[cpu];
+				task->state = TASK_READY;
+				task->cpu_id = -1;
+				runq.push_back(task);
+				current_task[cpu] = nullptr;
+			}
+		}
+	}
 
-                // 1. CPU가 비어있다면 즉시 스케줄링 시도
-                if (!task) {
-                    task = schedule(cpu);
-                    if (!task) break;
-                }
+	/* pick_next_task - Dispatcher: select next task for CPU */
+	task_struct* pick_next_task(int cpu) {
+		for (auto it = runq.begin(); it != runq.end(); ++it) {
+			/* Mutual exclusion check: forkI virtual threads */
+			if (is_tgid_running((*it)->tgid))
+				continue;
 
-                // 2. 지연 종료 (Deferred Kill) 처리
-                if (handle_deferred_kill(cpu, task)) {
-                    continue; // 죽었으면 while 처음으로 돌아가 다음 태스크 스케줄링
-                }
+			task_struct *task = *it;
+			runq.erase(it);
 
-                // 3. 연산(compute) 중이면 명령어 실행 건너뜀
-                if (task->remaining_computation > 0) {
-                    break;
-                }
+			task->state = TASK_RUNNING;
+			task->cpu_id = cpu;
+			current_task[cpu] = task;
+			return task;
+		}
+		return nullptr;
+	}
 
-                vector<Instruction>& text = text_segment[task->code_block_name];
-                bool break_tick = false;
+	/* __finish_task_unlocked - Finalize terminated task */
+	bool __finish_task_unlocked(int cpu, task_struct *task) {
+		if (task && task->deferred_kill) {
+			task->state = TASK_DEAD;
+			task->exit_time = sys_jiffies;
+			current_task[cpu] = nullptr;
+			return true;
+		}
+		return false;
+	}
 
-                // 4. 한 틱 내 명령어 연속 실행 파이프라인
-                while (!break_tick && task->state == TASK_RUNNING) {
-                    Instruction& inst = text[task->pc];
+	/* execute_instr - Single instruction executor (zero-time or blocking) */
+	int execute_instr(int cpu, task_struct *task, instr &inst, bool &should_break) {
+		int ret = EOK;
 
-                    // 단일 명령어 실행기 호출
-                    ret = execute_instruction(cpu, task, inst, break_tick);
-                    if (ret) return ret; // Panic 발생 시 즉시 탈출
-                }
+		switch (inst.opcode) {
+		case OP_COMPUTE:
+			task->remaining_ticks = inst.i_operand;
+			task->pc++;
+			should_break = true;
+			break;
 
-                // 파이프라인 종료 후 여전히 CPU를 점유 중이면 루프 탈출
-                if (current[cpu] != nullptr) {
-                    break;
-                }
-            }
-        }
+		case OP_YIELD:
+			do_yield(task);
+			task->pc++;
+			should_break = true;
+			break;
 
-        // 5. 남은 연산 시간 차감
-        for (int cpu = 0; cpu < nr_cpus; ++cpu) {
-            task_struct* task = current[cpu];
-            if (task && task->remaining_computation > 0) {
-                task->remaining_computation--;
-            }
-        }
-        return ret;
-    }
+		case OP_LOCK:
+			do_lock(task, inst.s_operand1, inst.i_operand);
+			task->pc++;
+			if (task->state == TASK_INTERRUPTIBLE) {
+				should_break = true;
+			}
+			break;
 
-    // [Helper] 그룹 실행 여부 확인 (for forkI)
-    bool is_group_running(int tgid) {
-        // 현재 running 상태인 모든 태스크 중 tgid가 일치하는 것이 있는지 검사
-        for (int cpu = 0; cpu < nr_cpus; ++cpu) {
-            if (!current[cpu]) continue;
-            if (current[cpu]->tgid == tgid) return true;
-        }
-        return false;
-    }
+		case OP_UNLOCK:
+			do_unlock(task, inst.s_operand1, inst.i_operand);
+			task->pc++;
+			break;
 
-    // ---------------------------------------------------------
-    // [Entry Point] - 부팅 및 메인 루프
-    // ---------------------------------------------------------
-    void start_kernel(map<string, int>& init_sems, map<string, vector<Instruction>>& codes, string init_block) {
-        int ret = 0;
+		case OP_END:
+			/* Release all held semaphores on exit */
+			for (auto& [sem_name, sem] : sem_table) {
+				auto it = find(sem.wait_q.begin(), sem.wait_q.end(), task->pid);
+				if (it != sem.wait_q.end())
+					sem.wait_q.erase(it);
+			}
+			task->state = TASK_DEAD;
+			task->exit_time = sys_jiffies;
+			current_task[cpu] = nullptr;
+			should_break = true;
+			break;
 
-        // 1. Load Resources
-        sem_table.clear();
-        for(auto& kv : init_sems) sem_table[kv.first] = {kv.second, {}};
-        text_segment = codes;
+		case OP_LOOP:
+			if (inst.i_operand == 0) {
+				task->pc = inst.jump_pc + 1;
+			} else {
+				task->loop_stack.push_back(inst.i_operand);
+				task->pc++;
+			}
+			break;
 
-        // 코드 블록별로 loop와 next 연결하기 (전처리)
-        for (auto& [block_name, insts]: text_segment) {
-            vector<int> loop_stack;
-            for (int pc = 0; pc < insts.size(); ++pc) {
-                if (insts[pc].opcode == OP_LOOP) {
-                    loop_stack.push_back(pc);
-                } else if (insts[pc].opcode == OP_NEXT) {
-                    int loop_pc = loop_stack.back();
-                    loop_stack.pop_back();
+		case OP_NEXT:
+			{
+				int &iter = task->loop_stack.back();
+				iter--;
+				if (iter > 0) {
+					task->pc = inst.jump_pc + 1;
+				} else {
+					task->loop_stack.pop_back();
+					task->pc++;
+				}
+			}
+			break;
 
-                    insts[loop_pc].jump_pc = pc;
-                    insts[pc].jump_pc = loop_pc;
-                }
-            }
-        }
+		case OP_FORK_R:
+			ret = do_fork(task, inst.s_operand1, inst.s_operand2, false);
+			if (ret) return ret;
+			task->pc++;
+			break;
 
-        // 2. Create Init Process (PID 1)
-        task_struct init_task;
-        init_task.pid = next_pid++;
-        init_task.tgid = init_task.pid; // Init task starts its own group
-        init_task.state = TASK_READY;
-        init_task.pc = 0;
-        init_task.cpu_id = -1;
-        init_task.code_block_name = init_block;
-        init_task.remaining_computation = 0;
-        init_task.waiting_amount = 0;
+		case OP_FORK_I:
+			ret = do_fork(task, inst.s_operand1, inst.s_operand2, true);
+			if (ret) return ret;
+			task->pc++;
+			break;
 
-        task_table[init_task.pid] = init_task;
-        runqueue.push_back(&task_table[init_task.pid]); // Add to Runqueue
+		case OP_KILL:
+			do_kill(task, inst.s_operand1);
+			task->pc++;
+			break;
+		}
 
-        // 3. Main Kernel Loop
-        while (sys_clock <= max_time) {
-            // A. Timer Interrupt & Scheduling
-            scheduler_tick();
+		return ret;
+	}
 
-            // B. Execute Instructions
-            ret = run_cpus();
-            if (ret) {
-                system_panic = true;
-                break;
-            }
+	/* run_per_cpu - Per-CPU run loop */
+	int run_per_cpu(int cpu) {
+		int ret = EOK;
 
-            // C. Advance System Clock
-            sys_clock++;
-        }
+		while (true) {
+			task_struct *task = current_task[cpu];
 
-        // 4. Print Result (Panic or Shutdown)
-        print_result();
-    }
+			/* 1. CPU idle: schedule next task */
+			if (!task) {
+				task = pick_next_task(cpu);
+				if (!task) break;
+			}
 
-    void print_result() {
-        bool loop = false;
-        for (auto& [pid, task]: task_table)
-            if (task.state != TASK_DEAD) {
-                loop = true;
-                break;
-            }
+			/* 2. Check deferred kill */
+			if (__finish_task_unlocked(cpu, task)) {
+				continue;
+			}
 
-        for (auto& [pid, task]: task_table)
-            if (task.state == TASK_DEAD)
-                cout << pid << " " << task.finish_time << endl;
+			/* 3. Skip instruction if still computing */
+			if (task->remaining_ticks > 0) {
+				break;
+			}
 
-        if (system_panic) {
-            cout << "<<oops>>" << endl;
-            return;
-        }
+			vector<instr> &text = text_segments[task->code_section];
+			bool should_break = false;
 
-        if (loop)
-            cout << "<<loop>>" << endl;
-    }
+			/* 4. Instruction pipeline (zero-time chain execution) */
+			while (!should_break && task->state == TASK_RUNNING) {
+				instr &inst = text[task->pc];
+
+				ret = execute_instr(cpu, task, inst, should_break);
+				if (ret) return ret;
+			}
+
+			/* 5. Exit loop if CPU still occupied */
+			if (current_task[cpu] != nullptr) {
+				break;
+			}
+		}
+
+		return ret;
+	}
+
+	/* __do_schedule - Main scheduler for all CPUs */
+	int __do_schedule(void) {
+		int ret = EOK;
+
+		for (int cpu = 0; cpu < nr_cpus; ++cpu) {
+			ret = run_per_cpu(cpu);
+			if (ret) return ret;
+		}
+
+		/* 6. Decrement compute ticks for running tasks */
+		for (int cpu = 0; cpu < nr_cpus; ++cpu) {
+			task_struct *task = current_task[cpu];
+			if (task && task->remaining_ticks > 0) {
+				task->remaining_ticks--;
+			}
+		}
+
+		return ret;
+	}
+
+	/* is_tgid_running - Check if any task in tgid is running */
+	bool is_tgid_running(pid_t tgid) {
+		for (int cpu = 0; cpu < nr_cpus; ++cpu) {
+			if (!current_task[cpu]) continue;
+			if (current_task[cpu]->tgid == tgid)
+				return true;
+		}
+		return false;
+	}
+
+	/* ================================================================
+	 * [Kernel Boot & Main Loop]
+	 * ================================================================ */
+
+	/* kernel_main - System initialization and main loop */
+	void kernel_main(map<string, int> &init_sems,
+					 map<string, vector<instr>> &code_sections,
+					 const string &init_section) {
+		int ret = EOK;
+
+		/* 1. Initialize kernel memory */
+		sem_table.clear();
+		for (auto& [sem_name, val] : init_sems) {
+			sem_table[sem_name] = {val, {}};
+		}
+		text_segments = code_sections;
+
+		/* 2. Link LOOP/NEXT pairs in code sections */
+		for (auto& [section_name, instructions] : text_segments) {
+			vector<int> loop_st;
+			for (size_t pc = 0; pc < instructions.size(); ++pc) {
+				if (instructions[pc].opcode == OP_LOOP) {
+					loop_st.push_back(pc);
+				} else if (instructions[pc].opcode == OP_NEXT) {
+					int loop_pc = loop_st.back();
+					loop_st.pop_back();
+
+					instructions[loop_pc].jump_pc = pc;
+					instructions[pc].jump_pc = loop_pc;
+				}
+			}
+		}
+
+		/* 3. Create init process (PID 1 - init task) */
+		task_struct init_proc(next_pid++, 1, TASK_READY);
+		init_proc.pc = 0;
+		init_proc.cpu_id = -1;
+		init_proc.code_section = init_section;
+		init_proc.remaining_ticks = 0;
+		init_proc.wait_amount = 0;
+
+		task_db[init_proc.pid] = init_proc;
+		runq.push_back(&task_db[init_proc.pid]);
+
+		/* 4. Main event loop - system runs until max_jiffies or all tasks exit */
+		while (sys_jiffies <= max_jiffies) {
+			/* A. Timer interrupt (RR preemption) */
+			tick_handler();
+
+			/* B. Scheduler and instruction execution */
+			ret = __do_schedule();
+			if (unlikely(ret)) {
+				kernel_panic = true;
+				break;
+			}
+
+			/* C. Advance system clock */
+			sys_jiffies++;
+		}
+
+		/* 5. Shutdown and report */
+		print_accounting();
+	}
+
+	/* print_accounting - Terminate and print results */
+	void print_accounting(void) {
+		bool has_runnable = false;
+
+		for (auto& [_pid, task] : task_db) {
+			if (task.state != TASK_DEAD) {
+				has_runnable = true;
+				break;
+			}
+		}
+
+		/* Print exit times of dead tasks */
+		for (auto& [_pid, task] : task_db) {
+			if (task.state == TASK_DEAD) {
+				cout << task.pid << " " << task.exit_time << endl;
+			}
+		}
+
+		/* Report final status */
+		if (kernel_panic) {
+			cout << "<<oops>>" << endl;
+		} else if (has_runnable) {
+			cout << "<<loop>>" << endl;
+		}
+	}
 };
 
-// #define TEST
-#ifdef TEST
-class TestKernel : public Kernel {
+/* ================================================================
+ * [Unit Testing Framework]
+ * ================================================================ */
+
+#define KERNEL_TEST 0
+#if KERNEL_TEST
+
+class kernel_test : public kernel {
 public:
-    TestKernel(int mt, int mth, int ncpu, int ts) : Kernel(mt, mth, ncpu, ts) {}
+	kernel_test(int max_t, int max_th, int ncpu, int tslice)
+		: kernel(max_t, max_th, ncpu, tslice) {}
 
-#define ASSERT_TEST(cond, msg) \
-    if (!(cond)) { \
-        cerr << "[FAIL] " << __func__ << ": " << msg << "\n"; \
-        return false; \
-    }
+	#define ASSERT_EQ(a, b, msg) \
+		if ((a) != (b)) { \
+			fprintf(stderr, "[FAIL] %s:%d %s (expected %d, got %d)\n", \
+				__func__, __LINE__, msg, b, a); \
+			return false; \
+		}
 
-    // 각 단위 테스트 전 커널의 메모리와 상태를 완전히 초기화
-    void reset_unit_test(int mt, int mth, int ncpu, int ts) {
-        max_time = mt; max_threads = mth; nr_cpus = ncpu; time_slice = ts;
-        sys_clock = 0; next_pid = 1; system_panic = false;
-        text_segment.clear(); sem_table.clear(); task_table.clear(); runqueue.clear();
-        for (int i = 0; i < MAX_CPUS; i++) current[i] = nullptr;
-    }
+	#define ASSERT_TRUE(cond, msg) \
+		if (!(cond)) { \
+			fprintf(stderr, "[FAIL] %s:%d %s\n", __func__, __LINE__, msg); \
+			return false; \
+		}
 
-    // ------------------------------------------------------------------
-    // [Unit Test 1] sys_fork : Capacity 방어 (TC4) & Virtual Thread 상속 (TC3)
-    // ------------------------------------------------------------------
-    bool test_sys_fork_edge_cases() {
-        reset_unit_test(10, 2, 1, 5); // ★ 최대 스레드 제한(max_threads)을 2로 설정
+	/* Reset kernel state for unit test */
+	void test_reset(int mt, int mth, int ncpu, int ts) {
+		max_jiffies = mt;
+		max_nr_tasks = mth;
+		nr_cpus = ncpu;
+		time_slice = ts;
 
-        // 1. 초기 상태: 부모 태스크 1개 존재 (living_threads = 1)
-        task_struct parent;
-        parent.pid = next_pid++; parent.tgid = parent.pid; parent.state = TASK_RUNNING;
-        task_table[parent.pid] = parent;
+		sys_jiffies = 0;
+		next_pid = 1;
+		kernel_panic = false;
 
-        // Act 1: Virtual Thread (forkI) 생성 시도
-        int ret1 = sys_fork(&task_table[parent.pid], "child1", "blockB", true);
+		text_segments.clear();
+		sem_table.clear();
+		task_db.clear();
+		runq.clear();
 
-        // Assert 1: 성공해야 하며, tgid가 부모와 같고, 부모의 레지스터에 PID가 저장되어야 함 (TC2 시그널 미스 방지)
-        ASSERT_TEST(ret1 == 0, "First fork should succeed");
-        ASSERT_TEST(task_table[parent.pid].registers["child1"] == 2, "Child PID must be saved to parent's register");
-        ASSERT_TEST(task_table[2].tgid == parent.tgid, "Virtual thread MUST inherit parent's tgid");
+		for (int i = 0; i < MAX_CPUS; i++)
+			current_task[i] = nullptr;
+	}
 
-        // Act 2: Native Thread (forkR) 생성 시도 -> living_threads가 2이므로 여기서 터져야 함!
-        int ret2 = sys_fork(&task_table[parent.pid], "child2", "blockC", false);
+	/* UT1: do_fork() - capacity and virtual thread TGID */
+	bool test_do_fork_tgid_and_capacity(void) {
+		test_reset(10, 2, 1, 5);
 
-        // Assert 2: Capacity 초과 방어 로직 검증 (TC4)
-        ASSERT_TEST(ret2 == -1, "Second fork MUST fail (max_threads exceeded)");
-        ASSERT_TEST(task_table.size() == 2, "No new task should be added to task_table");
+		/* Setup parent task */
+		task_struct parent(next_pid++, 1, TASK_RUNNING);
+		task_db[parent.pid] = parent;
 
-        return true;
-    }
+		/* Act 1: Create virtual thread */
+		int ret1 = do_fork(&task_db[parent.pid], "child1", "blockB", true);
 
-    // ------------------------------------------------------------------
-    // [Unit Test 2] sys_kill : 지연 종료(Deferred Kill)의 정밀한 상태 전이 (TC2)
-    // ------------------------------------------------------------------
-    bool test_sys_kill_deferred() {
-        reset_unit_test(10, 10, 1, 5);
+		ASSERT_EQ(ret1, EOK, "First fork should succeed");
+		ASSERT_EQ(task_db[parent.pid].regs["child1"], 2, "Child PID saved in parent's regs");
+		ASSERT_EQ(task_db[2].tgid, parent.tgid, "Virtual thread inherits parent TGID");
 
-        sem_table["sem1"] = {0, {2}}; // 값 0, PID 2가 대기 중
+		/* Act 2: Create native thread (should fail - capacity) */
+		int ret2 = do_fork(&task_db[parent.pid], "child2", "blockC", false);
 
-        // Arrange: Task 1(READY 상태), Task 2(WAITING 상태)
-        task_table[1] = {1, 1, TASK_READY};
-        task_table[2] = {2, 2, TASK_INTERRUPTIBLE};
-        task_table[2].waiting_sem = "sem1";
+		ASSERT_EQ(ret2, ESYSCALL_EBUSY, "Second fork fails on capacity");
+		ASSERT_TRUE(task_db.size() == 2, "No extra task created");
 
-        // Sender 세팅 (타겟들의 PID 보관)
-        task_table[9] = {9, 9, TASK_RUNNING};
-        task_table[9].registers["target1"] = 1;
-        task_table[9].registers["target2"] = 2;
+		return true;
+	}
 
-        // Act 1: READY 상태인 Task 1 공격
-        sys_kill(&task_table[9], "target1");
+	/* UT2: do_kill() - deferred kill on READY state */
+	bool test_do_kill_deferred_ready(void) {
+		test_reset(10, 10, 1, 5);
 
-        // Assert 1: 즉사하지 않고 사형 선고만 받아야 함
-        ASSERT_TEST(task_table[1].state == TASK_READY, "Task 1 should NOT be DEAD instantly");
-        ASSERT_TEST(task_table[1].pending_kill == true, "Task 1 MUST get pending_kill marker");
+		/* Setup tasks */
+		task_db[1] = task_struct(1, 1, TASK_READY);
+		task_db[2] = task_struct(2, 2, TASK_INTERRUPTIBLE);
+		task_db[2].waiting_sem = "sem1";
 
-        // Act 2: INTERRUPTIBLE (Blocked) 상태인 Task 2 공격
-        sys_kill(&task_table[9], "target2");
+		sem_table["sem1"] = {0, {2}};
 
-        // Assert 2: 큐에서 탈출하여 READY가 되고 사형 선고를 받아야 함
-        ASSERT_TEST(sem_table["sem1"].wait_list.empty(), "Task 2 MUST be removed from sem's wait_list");
-        ASSERT_TEST(task_table[2].waiting_sem == "", "Task 2's waiting_sem target must be cleared");
-        ASSERT_TEST(task_table[2].state == TASK_READY, "Task 2 MUST become READY");
-        ASSERT_TEST(task_table[2].pending_kill == true, "Task 2 MUST get pending_kill marker");
-        ASSERT_TEST(runqueue.back()->pid == 2, "Task 2 MUST be pushed to runqueue to be executed(killed) later");
+		/* Setup killer */
+		task_db[9] = task_struct(9, 9, TASK_RUNNING);
+		task_db[9].regs["target1"] = 1;
+		task_db[9].regs["target2"] = 2;
 
-        return true;
-    }
+		/* Act 1: Kill READY task */
+		do_kill(&task_db[9], "target1");
 
-    // ------------------------------------------------------------------
-    // [Unit Test 3] sys_lock / sys_unlock : Strict FIFO 보장 (TC2 Deadlock 관련)
-    // ------------------------------------------------------------------
-    bool test_sys_lock_strict_fifo() {
-        reset_unit_test(10, 10, 1, 5);
+		ASSERT_TRUE(task_db[1].state == TASK_READY, "READY task not instantly killed");
+		ASSERT_TRUE(task_db[1].deferred_kill, "READY task marked for deferred kill");
 
-        sem_table["sem1"] = {1, {}}; // 잔여량 1
+		/* Act 2: Kill INTERRUPTIBLE task */
+		do_kill(&task_db[9], "target2");
 
-        task_table[1] = {1, 1, TASK_RUNNING};
-        task_table[2] = {2, 2, TASK_RUNNING};
-        task_table[3] = {3, 3, TASK_RUNNING}; // unlock 담당
+		ASSERT_TRUE(sem_table["sem1"].wait_q.empty(), "Task removed from sem wait_q");
+		ASSERT_TRUE(task_db[2].waiting_sem == "", "Waiting sem cleared");
+		ASSERT_EQ(task_db[2].state, TASK_READY, "Blocked task becomes READY");
+		ASSERT_TRUE(task_db[2].deferred_kill, "Blocked task marked for deferred kill");
 
-        // Act 1: Task 1이 2를 요구 (부족해서 Block 됨)
-        sys_lock(&task_table[1], "sem1", 2);
-        ASSERT_TEST(task_table[1].state == TASK_INTERRUPTIBLE, "Task 1 blocked");
+		return true;
+	}
 
-        // Act 2: Task 2가 1을 요구 (충분하므로 성공해야 함 - FIFO 큐에 없으므로)
-        sys_lock(&task_table[2], "sem1", 1);
-        ASSERT_TEST(task_table[2].state == TASK_RUNNING, "Task 2 succeeds because value is enough and it's not blocked");
-        ASSERT_TEST(sem_table["sem1"].value == 0, "Semaphore value becomes 0");
+	/* UT3: do_lock/do_unlock - strict FIFO ordering */
+	bool test_do_lock_strict_fifo(void) {
+		test_reset(10, 10, 1, 5);
 
-        // Act 3: Task 3이 1을 반환 (잔여량 1이 됨)
-        sys_unlock(&task_table[3], "sem1", 1);
+		sem_table["sem1"] = {1, {}};
 
-        // Assert: 큐의 맨 앞에 있는 Task 1은 2가 필요하므로 여전히 깨어나선 안 됨! (Strict FIFO)
-        ASSERT_TEST(sem_table["sem1"].value == 1, "Semaphore value is 1");
-        ASSERT_TEST(task_table[1].state == TASK_INTERRUPTIBLE, "Task 1 MUST remain blocked (needs 2)");
-        ASSERT_TEST(sem_table["sem1"].wait_list.size() == 1, "Task 1 is still in wait_list");
+		task_db[1] = task_struct(1, 1, TASK_RUNNING);
+		task_db[1].cpu_id = 0;
+		current_task[0] = &task_db[1];
 
-        return true;
-    }
+		task_db[2] = task_struct(2, 2, TASK_RUNNING);
+		task_db[2].cpu_id = 1;
+		current_task[1] = &task_db[2];
 
-    // ------------------------------------------------------------------
-    // [Unit Test 4] execute_instruction : Zero-time Pipeline & Deadlock Trap 방어 (TC1, TC2)
-    // ------------------------------------------------------------------
-    bool test_execute_instruction_pipeline() {
-        reset_unit_test(10, 10, 1, 5);
+		task_db[3] = task_struct(3, 3, TASK_RUNNING);
 
-        task_struct task;
-        task.pid = 1;
-        task.tgid = 1;
-        task.state = TASK_RUNNING;
-        task.cpu_id = 0;                // ★ 핵심: sys_lock 내부의 current[cpu_id] 접근 시 Segfault 방지
-        task.remaining_computation = 0;
-        task.pc = 0;
-        task.waiting_amount = 0;
-        task.pending_kill = false;
+		/* Act 1: Task 1 tries to acquire 2 units (fails, blocks) */
+		do_lock(&task_db[1], "sem1", 2);
+		ASSERT_EQ(task_db[1].state, TASK_INTERRUPTIBLE, "Task 1 blocked");
 
-        current[0] = &task;
+		/* Act 2: Task 2 tries to acquire 1 unit (succeeds) */
+		do_lock(&task_db[2], "sem1", 1);
+		ASSERT_EQ(task_db[2].state, TASK_RUNNING, "Task 2 succeeds");
+		ASSERT_EQ(sem_table["sem1"].count, 0, "Sem value is 0");
 
-        sem_table["sem1"] = {0, {}};
+		/* Act 3: Task 3 releases 1 unit */
+		do_unlock(&task_db[3], "sem1", 1);
 
-        bool break_tick = false;
+		/* Assert: Task 1 still blocked (needs 2, only 1 available - FIFO) */
+		ASSERT_EQ(sem_table["sem1"].count, 1, "Sem value is 1");
+		ASSERT_EQ(task_db[1].state, TASK_INTERRUPTIBLE, "Task 1 still blocked (FIFO)");
+		ASSERT_TRUE(sem_table["sem1"].wait_q.size() == 1, "Task 1 in wait_q");
 
-        // Act & Assert 1: 시간 소모가 없는 명령어 (OP_UNLOCK) -> TC1
-        Instruction inst_unlock = {OP_UNLOCK, "sem1", "", 1};
-        execute_instruction(0, &task, inst_unlock, break_tick);
-        ASSERT_TEST(task.pc == 1, "PC MUST increment");
-        ASSERT_TEST(break_tick == false, "Zero-time instruction MUST NOT break the tick pipeline");
-        ASSERT_TEST(sem_table["sem1"].value == 1, "Unlock executed");
+		return true;
+	}
 
-        // Act & Assert 2: 블록되는 명령어 (OP_LOCK) -> TC2 Deadlock 원인 방어
-        Instruction inst_lock = {OP_LOCK, "sem1", "", 5}; // 5를 요구하여 무조건 블록됨
-        execute_instruction(0, &task, inst_lock, break_tick);
+	/* UT4: execute_instr() - zero-time pipeline and PC increment on lock */
+	bool test_execute_instr_pipeline(void) {
+		test_reset(10, 10, 1, 5);
 
-        ASSERT_TEST(task.state == TASK_INTERRUPTIBLE, "Task MUST be blocked");
-        ASSERT_TEST(task.pc == 2, "★ PC MUST increment EVEN IF BLOCKED! (Crucial Deadlock Trap fix)");
-        ASSERT_TEST(break_tick == true, "Blocking instruction MUST break the tick pipeline");
-        ASSERT_TEST(current[0] == nullptr, "CPU MUST be freed after being blocked"); // [추가 검증] CPU 점유 해제 확인
+		task_struct task(1, 1, TASK_RUNNING);
+		task.cpu_id = 0;
+		task.pc = 0;
+		current_task[0] = &task;
+		task_db[1] = task;
 
-        // Act & Assert 3: 연산 명령어 (OP_COMPUTE) -> TC1
-        task.state = TASK_RUNNING; // 임시 복구 (시뮬레이션 진행을 위해)
-        current[0] = &task;        // 다시 CPU 0번에 올림
-        break_tick = false;
+		sem_table["sem1"] = {0, {}};
 
-        Instruction inst_compute = {OP_COMPUTE, "", "", 10};
-        execute_instruction(0, &task, inst_compute, break_tick);
+		/* Act 1: Execute UNLOCK (zero-time) */
+		bool brk = false;
+		instr inst_unlock = {OP_UNLOCK, "sem1", "", 1, 0};
+		execute_instr(0, &task_db[1], inst_unlock, brk);
 
-        ASSERT_TEST(task.remaining_computation == 10, "Remaining computation updated");
-        ASSERT_TEST(task.pc == 3, "PC MUST increment");
-        ASSERT_TEST(break_tick == true, "COMPUTE MUST break the tick pipeline");
+		ASSERT_EQ(task_db[1].pc, 1, "PC incremented after UNLOCK");
+		ASSERT_TRUE(brk == false, "Zero-time instr doesn't break pipeline");
+		ASSERT_EQ(sem_table["sem1"].count, 1, "UNLOCK executed");
 
-        return true;
-    }
+		/* Act 2: Execute LOCK (blocking) */
+		brk = false;
+		instr inst_lock = {OP_LOCK, "sem1", "", 5, 0};
+		execute_instr(0, &task_db[1], inst_lock, brk);
 
-    void run_all_unit_tests() {
-        cout << "--- Running Deep Unit Tests (Target: sys_*) ---\n";
-        int passed = 0, total = 4;
-        if (test_sys_fork_edge_cases()) { cout << "[OK] sys_fork : Capacity Limit & Virtual Thread TGID\n"; passed++; }
-        if (test_sys_kill_deferred()) { cout << "[OK] sys_kill : Deferred Kill & Wait Queue Exit\n"; passed++; }
-        if (test_sys_lock_strict_fifo()) { cout << "[OK] sys_lock/unlock : Strict FIFO Wake-up\n"; passed++; }
-        if (test_execute_instruction_pipeline()) { cout << "[OK] execute_inst : Pipeline Break & PC Increment\n"; passed++; }
-        cout << "--- Deep Unit Tests Passed: " << passed << "/" << total << " ---\n\n";
-    }
+		ASSERT_EQ(task_db[1].state, TASK_INTERRUPTIBLE, "Task blocked");
+		ASSERT_EQ(task_db[1].pc, 2, "PC incremented EVEN WHEN BLOCKED!");
+		ASSERT_TRUE(brk == true, "Blocking instr breaks pipeline");
+		ASSERT_TRUE(current_task[0] == nullptr, "CPU freed");
 
-#undef ASSERT_TEST
+		return true;
+	}
+
+	void run_all_tests(void) {
+		int passed = 0, total = 4;
+		printf("=== Kernel Unit Tests ===\n");
+
+		if (test_do_fork_tgid_and_capacity())
+			{ printf("[OK] do_fork: TGID inheritance & capacity\n"); passed++; }
+		if (test_do_kill_deferred_ready())
+			{ printf("[OK] do_kill: deferred kill & FIFO\n"); passed++; }
+		if (test_do_lock_strict_fifo())
+			{ printf("[OK] do_lock/unlock: strict FIFO\n"); passed++; }
+		if (test_execute_instr_pipeline())
+			{ printf("[OK] execute_instr: pipeline & PC\n"); passed++; }
+
+		printf("=== Test Results: %d/%d passed ===\n\n", passed, total);
+	}
+
+	#undef ASSERT_EQ
+	#undef ASSERT_TRUE
 };
+
+#endif  /* KERNEL_TEST */
+
+/* ================================================================
+ * [Hardware Layer - Main]
+ * ================================================================ */
+
+int main(void) {
+	FASTIO;
+
+#if KERNEL_TEST
+	kernel_test test_kern(100, 100, 2, 5);
+	test_kern.run_all_tests();
 #endif
 
-// ==========================================
-// [Main / Hardware Layer]
-// ==========================================
-int main() {
-    FASTIO;
-    // TDD Verification
-#ifdef TEST
-    TestKernel test_kernel(100, 100, 2, 5);
-    test_kernel.run_all_unit_tests();
-#endif
+	int max_t, max_th;
+	int case_no = 1;
 
-    int maxTime, maxThreads;
-    int caseNum = 1;
+	while (cin >> max_t >> max_th) {
+		if (unlikely(max_t == 0 && max_th == 0))
+			break;
 
-    while (cin >> maxTime >> maxThreads) {
-        if (maxTime == 0 && maxThreads == 0) break;
+		int ncpu, tslice, nsem;
+		cin >> ncpu >> tslice >> nsem;
 
-        int numCPUs, timeSlice, numSemaphores;
-        cin >> numCPUs >> timeSlice >> numSemaphores;
+		map<string, int> sems;
+		for (int i = 0; i < nsem; ++i) {
+			string sem_name;
+			int val;
+			cin >> sem_name >> val;
+			sems[sem_name] = val;
+		}
 
-        map<string, int> semaphores;
-        for (int i = 0; i < numSemaphores; ++i) {
-            string name; int val; cin >> name >> val;
-            semaphores[name] = val;
-        }
+		int nblocks;
+		cin >> nblocks;
 
-        int numCodeBlocks;
-        cin >> numCodeBlocks;
-        map<string, vector<Instruction>> codeBlocks;
-        string firstBlockName;
+		map<string, vector<instr>> code_blocks;
+		string first_block;
 
-        for (int i = 0; i < numCodeBlocks; ++i) {
-            string blockName; cin >> blockName;
-            if (blockName.back() == ':') blockName.pop_back();
-            if (i == 0) firstBlockName = blockName;
+		for (int i = 0; i < nblocks; ++i) {
+			string block_name;
+			cin >> block_name;
 
-            vector<Instruction> insts;
-            while (true) {
-                string token; cin >> token;
-                Instruction inst;
+			if (block_name.back() == ':')
+				block_name.pop_back();
 
-                if (token == "end") { inst.opcode = OP_END; insts.push_back(inst); break; }
-                else if (token == "compute") { inst.opcode = OP_COMPUTE; cin >> inst.i_operand; }
-                else if (token == "yield") { inst.opcode = OP_YIELD; }
-                else if (token == "killThread") { inst.opcode = OP_KILL; cin >> inst.s_operand1; }
-                else if (token == "lock") { inst.opcode = OP_LOCK; cin >> inst.s_operand1 >> inst.i_operand; }
-                else if (token == "unlock") { inst.opcode = OP_UNLOCK; cin >> inst.s_operand1 >> inst.i_operand; }
-                else if (token == "loop") { inst.opcode = OP_LOOP; cin >> inst.i_operand; }
-                else if (token == "next") { inst.opcode = OP_NEXT; }
-                else {
-                    // [var] <- forkX [block]
-                    string arrow, cmd, block; cin >> arrow >> cmd >> block;
-                    inst.s_operand1 = token; // var name
-                    inst.s_operand2 = block; // block name
-                    inst.opcode = (cmd == "forkR") ? OP_FORK_R : OP_FORK_I;
-                }
-                insts.push_back(inst);
-            }
-            codeBlocks[blockName] = insts;
-        }
+			if (i == 0)
+				first_block = block_name;
 
-        cout << "Case " << caseNum++ << ":" << endl;
-        Kernel kernel(maxTime, maxThreads, numCPUs, timeSlice);
-        kernel.start_kernel(semaphores, codeBlocks, firstBlockName);
-    }
-    return 0;
+			vector<instr> instructions;
+
+			while (true) {
+				string token;
+				cin >> token;
+
+				if (token == "end") {
+					instr inst = {OP_END, "", "", 0, 0};
+					instructions.push_back(inst);
+					break;
+				}
+
+				instr inst = {OP_END, "", "", 0, 0};
+
+				if (token == "compute") {
+					inst.opcode = OP_COMPUTE;
+					cin >> inst.i_operand;
+				}
+				else if (token == "yield") {
+					inst.opcode = OP_YIELD;
+				}
+				else if (token == "killThread") {
+					inst.opcode = OP_KILL;
+					cin >> inst.s_operand1;
+				}
+				else if (token == "lock") {
+					inst.opcode = OP_LOCK;
+					cin >> inst.s_operand1 >> inst.i_operand;
+				}
+				else if (token == "unlock") {
+					inst.opcode = OP_UNLOCK;
+					cin >> inst.s_operand1 >> inst.i_operand;
+				}
+				else if (token == "loop") {
+					inst.opcode = OP_LOOP;
+					cin >> inst.i_operand;
+				}
+				else if (token == "next") {
+					inst.opcode = OP_NEXT;
+				}
+				else {
+					/* [var] <- forkX [block] */
+					string arrow, cmd, block;
+					cin >> arrow >> cmd >> block;
+
+					inst.s_operand1 = token;  /* var name */
+					inst.s_operand2 = block;  /* block name */
+					inst.opcode = (cmd == "forkR") ? OP_FORK_R : OP_FORK_I;
+				}
+
+				instructions.push_back(inst);
+			}
+
+			code_blocks[block_name] = instructions;
+		}
+
+		cout << "Case " << case_no++ << ":" << endl;
+
+		kernel kern(max_t, max_th, ncpu, tslice);
+		kern.kernel_main(sems, code_blocks, first_block);
+	}
+
+	return 0;
 }
