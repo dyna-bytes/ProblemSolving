@@ -139,7 +139,7 @@ protected:
 
 	/* Process/Task Management */
 	deque<task_struct*> runq;		/* Global run queue */
-	task_struct* current_task[MAX_CPUS];	/* Per-CPU current task pointer */
+	task_struct* current[MAX_CPUS];	/* Per-CPU current task pointer */
 	map<pid_t, task_struct> task_db;	/* Task database (all processes) */
 
 	pid_t next_pid;					/* PID allocator */
@@ -150,7 +150,7 @@ public:
 		: sys_jiffies(0), max_jiffies(max_time), max_nr_tasks(max_threads),
 		  nr_cpus(ncpus), time_slice(tslice), next_pid(1), kernel_panic(false) {
 		for (int i = 0; i < MAX_CPUS; i++) {
-			current_task[i] = nullptr;
+			current[i] = nullptr;
 		}
 	}
 
@@ -195,7 +195,7 @@ public:
 			task->state = TASK_INTERRUPTIBLE;
 			task->waiting_sem = sem_name;
 			task->wait_amount = amount;
-			current_task[task->cpu_id] = nullptr;
+			current[task->cpu_id] = nullptr;
 			sem.wait_q.push_back(task->pid);
 		}
 	}
@@ -243,7 +243,7 @@ public:
 		task_struct *target = &task_it->second;
 
 		if (target->state == TASK_RUNNING) {
-			current_task[target->cpu_id] = nullptr;
+			current[target->cpu_id] = nullptr;
 			target->state = TASK_DEAD;
 			target->exit_time = sys_jiffies;
 		} else if (target->state == TASK_READY) {
@@ -263,7 +263,7 @@ public:
 
 	/* do_yield - Relinquish CPU and go to ready queue */
 	void do_yield(task_struct *task) {
-		current_task[task->cpu_id] = nullptr;
+		current[task->cpu_id] = nullptr;
 		task->state = TASK_READY;
 		task->cpu_id = -1;
 		runq.push_back(task);
@@ -278,13 +278,13 @@ public:
 		/* Round-robin preemption on time slice expiry */
 		if (sys_jiffies % time_slice == 0) {
 			for (int cpu = 0; cpu < nr_cpus; ++cpu) {
-				task_struct *task = current_task[cpu];
+				task_struct *task = current[cpu];
 				if (!task) continue;
 
 				task->state = TASK_READY;
 				task->cpu_id = -1;
 				runq.push_back(task);
-				current_task[cpu] = nullptr;
+				current[cpu] = nullptr;
 			}
 		}
 	}
@@ -301,7 +301,7 @@ public:
 
 			task->state = TASK_RUNNING;
 			task->cpu_id = cpu;
-			current_task[cpu] = task;
+			current[cpu] = task;
 			return task;
 		}
 		return nullptr;
@@ -312,7 +312,7 @@ public:
 		if (task && task->deferred_kill) {
 			task->state = TASK_DEAD;
 			task->exit_time = sys_jiffies;
-			current_task[cpu] = nullptr;
+			current[cpu] = nullptr;
 			return true;
 		}
 		return false;
@@ -357,7 +357,7 @@ public:
 			}
 			task->state = TASK_DEAD;
 			task->exit_time = sys_jiffies;
-			current_task[cpu] = nullptr;
+			current[cpu] = nullptr;
 			should_break = true;
 			break;
 
@@ -409,7 +409,7 @@ public:
 		int ret = EOK;
 
 		while (true) {
-			task_struct *task = current_task[cpu];
+			task_struct *task = current[cpu];
 
 			/* 1. CPU idle: schedule next task */
 			if (!task) {
@@ -439,7 +439,7 @@ public:
 			}
 
 			/* 5. Exit loop if CPU still occupied */
-			if (current_task[cpu] != nullptr) {
+			if (current[cpu] != nullptr) {
 				break;
 			}
 		}
@@ -458,7 +458,7 @@ public:
 
 		/* 6. Decrement compute ticks for running tasks */
 		for (int cpu = 0; cpu < nr_cpus; ++cpu) {
-			task_struct *task = current_task[cpu];
+			task_struct *task = current[cpu];
 			if (task && task->remaining_ticks > 0) {
 				task->remaining_ticks--;
 			}
@@ -470,8 +470,8 @@ public:
 	/* is_tgid_running - Check if any task in tgid is running */
 	bool is_tgid_running(pid_t tgid) {
 		for (int cpu = 0; cpu < nr_cpus; ++cpu) {
-			if (!current_task[cpu]) continue;
-			if (current_task[cpu]->tgid == tgid)
+			if (!current[cpu]) continue;
+			if (current[cpu]->tgid == tgid)
 				return true;
 		}
 		return false;
@@ -610,7 +610,7 @@ public:
 		runq.clear();
 
 		for (int i = 0; i < MAX_CPUS; i++)
-			current_task[i] = nullptr;
+			current[i] = nullptr;
 	}
 
 	/* UT1: do_fork() - capacity and virtual thread TGID */
@@ -678,11 +678,11 @@ public:
 
 		task_db[1] = task_struct(1, 1, TASK_RUNNING);
 		task_db[1].cpu_id = 0;
-		current_task[0] = &task_db[1];
+		current[0] = &task_db[1];
 
 		task_db[2] = task_struct(2, 2, TASK_RUNNING);
 		task_db[2].cpu_id = 1;
-		current_task[1] = &task_db[2];
+		current[1] = &task_db[2];
 
 		task_db[3] = task_struct(3, 3, TASK_RUNNING);
 
@@ -713,7 +713,7 @@ public:
 		task_struct task(1, 1, TASK_RUNNING);
 		task.cpu_id = 0;
 		task.pc = 0;
-		current_task[0] = &task;
+		current[0] = &task;
 		task_db[1] = task;
 
 		sem_table["sem1"] = {0, {}};
@@ -735,7 +735,7 @@ public:
 		ASSERT_EQ(task_db[1].state, TASK_INTERRUPTIBLE, "Task blocked");
 		ASSERT_EQ(task_db[1].pc, 2, "PC incremented EVEN WHEN BLOCKED!");
 		ASSERT_TRUE(brk == true, "Blocking instr breaks pipeline");
-		ASSERT_TRUE(current_task[0] == nullptr, "CPU freed");
+		ASSERT_TRUE(current[0] == nullptr, "CPU freed");
 
 		return true;
 	}
