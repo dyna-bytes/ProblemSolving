@@ -2,297 +2,505 @@
 #include <bits/stdc++.h>
 
 using namespace std;
+
 #define endl '\n'
-#define FASTIO ios::sync_with_stdio(0), cin.tie(0), cout.tie(0)
-#define DBG
-#ifdef DBG
-#define debug(x) cout << "[" << __func__ << "](" << __LINE__ << ") " << #x << " is " << x << endl;
-#define debugVect(v) do { \
-    cout << "[" << __func__ << "](" << __LINE__ << ") " << #v << " is |\t"; \
-    for (auto e: v) cout << e << "|\t" ; \
-    cout << endl; \
-} while (0)
-#define debugVect2d(vv) do { \
-    cout << "[" << __func__ << "](" << __LINE__ << ") " << #vv << " is " << endl; \
-    for (auto v: vv) debugVect(v); \
-} while (0)
-#else
-#define debug(x)
-#define debugVect(v)
-#define debugVect2d(vv)
+#define FASTIO ios::sync_with_stdio(0), cin.tie(0)
+
+/* Architecture-specific macros */
+#ifndef likely
+#define likely(x)		__builtin_expect(!!(x), 1)
+#define unlikely(x)		__builtin_expect(!!(x), 0)
 #endif
 
-const char OP_LOCK = 'L';
-const char OP_UNLOCK = 'U';
-const char OP_CACL = 'C';
+/* POSIX-compatible types */
+#ifndef pid_t
+typedef int pid_t;
+#endif
 
-enum TaskState {
-    INACTIVE,   // 시작 전
-    READY,      // 실행 대기 (Ready Queue)
-    RUNNING,    // CPU 점유 중
-    BLOCKED,    // 리소스 대기 (Wait Queue)
-    FINISHED    // 종료됨
+/* Kernel return codes */
+#define EOK				(0)
+#define ESYSCALL_EBUSY	(-1)
+#define ESYSCALL_PANIC	(-2)
+
+/* Task state bits (Linux kernel style) */
+#define __TASK_INACTIVE		0
+#define __TASK_READY		1
+#define __TASK_RUNNING		2
+#define __TASK_BLOCKED		3
+#define __TASK_FINISHED		4
+
+enum task_state_t {
+	TASK_INACTIVE	= (1 << __TASK_INACTIVE),
+	TASK_READY		= (1 << __TASK_READY),
+	TASK_RUNNING	= (1 << __TASK_RUNNING),
+	TASK_BLOCKED	= (1 << __TASK_BLOCKED),
+	TASK_FINISHED	= (1 << __TASK_FINISHED)
 };
 
-// --- Forward Declarations ---
-struct Task;
-struct Resource;
-
-// --- Structures ---
-struct Instruction {
-    char op;
-    int val;
+/* Instruction opcodes */
+enum instr_opcode_t {
+	OP_COMPUTE = 0,
+	OP_LOCK,
+	OP_UNLOCK
 };
 
-struct Task {
-    int id;
-    int start_time;
-    int base_prio;
-    int curr_prio; // 상속된 우선순위
+/* Debug macros */
+#define KERNEL_DBG 0
+#if KERNEL_DBG
+#define kprintk(fmt, ...) printf("[%s:%d] " fmt, __func__, __LINE__, ##__VA_ARGS__)
+#else
+#define kprintk(fmt, ...)
+#endif
 
-    TaskState state;
+/* ================================================================
+ * [Data Structures - Kernel Objects]
+ * ================================================================ */
 
-    int pc; // Program Counter
-    vector<Instruction> instructions;
+/* Forward declaration */
+struct task_struct;
 
-    vector<Resource*> held_resources;
-    set<Task*> blocking_tasks; // 나 때문에 멈춰있는 태스크들 (상속 계산용)
-
-    int finish_time;
+/* Machine Instruction Format */
+struct instr {
+	instr_opcode_t opcode;
+	int operand;
 };
 
-struct Resource {
-    int id;
-    int prio_ceiling;
-    Task* owner_task;
+/* Semaphore Object (IPC) */
+struct semaphore {
+	int id;
+	int prio_ceiling;
+	task_struct* owner_task;
 };
 
-// --- RTOS Kernel Class ---
-class Kernel {
-private:
-    int tick;
-    int total_tasks;
-    int finished_count;
+/* Task/Thread Control Block */
+struct task_struct {
+	/* Identification */
+	pid_t pid;
 
-    Task* current_task;
-    vector<Task*> ready_queue;
-    vector<Task*> wait_queue;
+	/* Scheduler state */
+	enum task_state_t state;
+	int base_prio;
+	int curr_prio;
 
-    vector<Resource>& resources;
-    vector<Task>& tasks;
+	/* CPU Context */
+	unsigned int pc;
+	vector<instr> instructions;
+	vector<int> held_semaphores;
+	set<task_struct*> blocking_tasks;
+
+	/* Lifecycle */
+	unsigned int start_time;
+	unsigned int finish_time;
+
+	/* Constructors */
+	task_struct()
+		: pid(0), state(TASK_INACTIVE), base_prio(0), curr_prio(0),
+		  pc(0), start_time(0), finish_time(0) {}
+
+	explicit task_struct(pid_t _pid, enum task_state_t _state)
+		: pid(_pid), state(_state), base_prio(0), curr_prio(0),
+		  pc(0), start_time(0), finish_time(0) {}
+
+	bool operator==(const task_struct& other) const {
+		return this->pid == other.pid;
+	}
+};
+
+/* ================================================================
+ * [Kernel Subsystem]
+ * ================================================================ */
+
+class kernel {
+protected:
+	/* System Configuration */
+	unsigned int sys_jiffies;
+	unsigned int nr_tasks;
+	unsigned int finished_count;
+
+	/* CPU & Scheduling */
+	task_struct* current;
+	vector<task_struct*> ready_queue;
+	vector<task_struct*> wait_queue;
+
+	/* IPC */
+	map<int, semaphore>& semaphores;
+
+	/* Task Database */
+	vector<task_struct>& tasks;
+
 public:
-    Kernel(int T, vector<Task>& t, vector<Resource>& r)
-        : total_tasks(T), tasks(t), resources(r), tick(0),
-        finished_count(0), current_task(nullptr) {}
+	kernel(int T, vector<task_struct>& t, map<int, semaphore>& s)
+		: sys_jiffies(0), nr_tasks(T), finished_count(0),
+		  current(nullptr), tasks(t), semaphores(s) {}
 
-    // ---------------------------------------------------------
-    // 1. Kernel Utilities (Priority & Ceiling)
-    // ---------------------------------------------------------
-    int calculate_inherited_priority(Task* t) {
-        int max_prio = t->base_prio;
-        for (Task* blocked: t->blocking_tasks)
-            max_prio = max(max_prio, calculate_inherited_priority(blocked));
-        return max_prio;
-    }
+	/* ----- Priority & Ceiling Management ----- */
+	int __calc_inherited_prio(task_struct* tsk) {
+		int max_prio = tsk->base_prio;
+		for (task_struct* blocked: tsk->blocking_tasks)
+			max_prio = max(max_prio, __calc_inherited_prio(blocked));
+		return max_prio;
+	}
 
-    void update_priority(Task* t) {
-        t->curr_prio = calculate_inherited_priority(t);
-    }
+	void __update_prio(task_struct* tsk) {
+		tsk->curr_prio = __calc_inherited_prio(tsk);
+	}
 
-    pair<int, Task*> get_system_ceiling() {
-        int max_ceil = -1;
-        Task* owner = nullptr;
-        for (const auto& resource: resources) {
-            if (resource.owner_task) {
-                if (resource.prio_ceiling > max_ceil) {
-                    max_ceil = resource.prio_ceiling;
-                    owner = resource.owner_task;
-                }
-            }
-        }
-        return { max_ceil, owner };
-    }
+	pair<int, task_struct*> __get_sys_ceiling(void) {
+		int max_ceil = -1;
+		task_struct* owner = nullptr;
+		for (const auto& [id, sem]: semaphores) {
+			if (likely(sem.owner_task)) {
+				if (sem.prio_ceiling > max_ceil) {
+					max_ceil = sem.prio_ceiling;
+					owner = sem.owner_task;
+				}
+			}
+		}
+		return { max_ceil, owner };
+	}
 
-    // ---------------------------------------------------------
-    // 2. Queue Management (Scheduling Logic)
-    // ---------------------------------------------------------
-    void enqueue_ready(Task* t) {
-        if (t->state == READY || t->state == RUNNING) return;
+	/* ----- Queue Management ----- */
+	void __enqueue_ready(task_struct* tsk) {
+		if (unlikely(tsk->state == TASK_READY || tsk->state == TASK_RUNNING)) return;
+		tsk->state = TASK_READY;
+		ready_queue.push_back(tsk);
+	}
 
-        t->state = READY;
-        ready_queue.push_back(t);
-    }
+	void __enqueue_wait_queue(task_struct* tsk) {
+		tsk->state = TASK_BLOCKED;
+		wait_queue.push_back(tsk);
+	}
 
-    void enqueue_wait(Task* t) {
-        t->state = BLOCKED;
-        wait_queue.push_back(t);
-    }
+	void __schedule(void) {
+		if (likely(current)) {
+			if (current->state == TASK_RUNNING) {
+				current->state = TASK_INACTIVE;
+				__enqueue_ready(current);
+			}
+			current = nullptr;
+		}
+		if (unlikely(ready_queue.empty())) return;
 
-    void schedule() {
-        if (current_task) {
-            if (current_task->state == RUNNING) {
-                current_task->state = INACTIVE;
-                enqueue_ready(current_task);
-            }
-            current_task = nullptr;
-        }
+		auto best_it = max_element(ready_queue.begin(), ready_queue.end(),
+			[](task_struct* a, task_struct* b) {
+				return a->curr_prio < b->curr_prio;
+			});
 
-        if (ready_queue.empty()) return;
+		current = *best_it;
+		ready_queue.erase(best_it);
+		current->state = TASK_RUNNING;
+	}
 
-        auto best_it = ready_queue.begin();
-        for (auto it = ready_queue.begin(); it != ready_queue.end(); ++it) {
-            Task* t = *it;
-            Task* best = *best_it;
-            if (t->curr_prio > best->curr_prio)
-                best_it = it;
-        }
+	/* ----- System Calls (IPC) ----- */
+	int do_lock(task_struct* tsk, int sem_id) {
+		semaphore& sem = semaphores[sem_id];
+		/* Early check: if semaphore already locked, fail immediately */
+		if (likely(sem.owner_task)) {
+			__enqueue_wait_queue(tsk);
+			sem.owner_task->blocking_tasks.insert(tsk);
+			__update_prio(sem.owner_task);
+			return ESYSCALL_EBUSY;
+		}
 
-        current_task = *best_it;
-        ready_queue.erase(best_it);
-        current_task->state = RUNNING;
-    }
+		/* Only compute ceiling if semaphore is free */
+		auto [sys_ceil, sys_ceil_owner] = __get_sys_ceiling();
 
-    // ---------------------------------------------------------
-    // 3. System Calls (LOCK, UNLOCK)
-    // ---------------------------------------------------------
-    bool sys_lock(Task* task, int r_id) {
-        Resource& res = resources[r_id];
-        auto [sys_ceil, sys_ceil_owner] = get_system_ceiling();
+		/* Check system ceiling constraint */
+		if (unlikely(sys_ceil_owner && sys_ceil_owner != tsk && tsk->curr_prio <= sys_ceil)) {
+			__enqueue_wait_queue(tsk);
+			sys_ceil_owner->blocking_tasks.insert(tsk);
+			__update_prio(sys_ceil_owner);
+			return ESYSCALL_EBUSY;
+		}
 
-        Task* blocker = nullptr;
-        if (res.owner_task)
-            blocker = res.owner_task;
-        else if (sys_ceil_owner && sys_ceil_owner != task)
-            if (task->curr_prio <= sys_ceil)
-                blocker = sys_ceil_owner;
+		sem.owner_task = tsk;
+		tsk->held_semaphores.push_back(sem_id);
+		return EOK;
+	}
 
-        if (blocker) {
-            enqueue_wait(task);
-            blocker->blocking_tasks.insert(task);
+	void do_unlock(task_struct* tsk, int sem_id) {
+		semaphore& sem = semaphores[sem_id];
+		sem.owner_task = nullptr;
+		if (likely(!tsk->held_semaphores.empty()))
+			tsk->held_semaphores.pop_back();
 
-            update_priority(blocker);
-            for (auto& t: tasks) update_priority(&t);
-            return false;
-        }
+		/* Clear blocking relationships for all tasks that were in wait_queue */
+		for (auto& t: tasks) t.blocking_tasks.clear();
 
-        res.owner_task = task;
-        task->held_resources.push_back(&res);
-        return true;
-    }
+		/* Enqueue waiting tasks and update all priorities */
+		for (task_struct* t: wait_queue)
+			__enqueue_ready(t);
+		wait_queue.clear();
 
-    void sys_unlock(Task* task, int r_id) {
-        Resource& res = resources[r_id];
+		for (auto& t: tasks) __update_prio(&t);
+	}
 
-        res.owner_task = nullptr;
-        task->held_resources.pop_back();
+	/* ----- Kernel Main Loop ----- */
+	void kernel_main(void) {
+		while (likely(finished_count < nr_tasks)) {
+			/* Activate tasks at start_time */
+			for (auto& t: tasks) {
+				if (unlikely(t.state == TASK_INACTIVE && t.start_time <= sys_jiffies)) {
+					t.curr_prio = t.base_prio;
+					__enqueue_ready(&t);
+				}
+			}
 
-        for (auto& t: tasks) t.blocking_tasks.clear();
-        for (auto& t: tasks) update_priority(&t);
+			__schedule();
 
-        for (Task* t: wait_queue)
-            enqueue_ready(t);
+			if (unlikely(!current)) {
+				sys_jiffies++;
+				continue;
+			}
 
-        wait_queue.clear();
-    }
+			instr& inst = current->instructions[current->pc];
 
-    // ---------------------------------------------------------
-    // 4. Main Kernel Loop
-    // ---------------------------------------------------------
-    void run() {
-        while (finished_count < total_tasks) {
-            for (auto& t: tasks) {
-                if (t.state == INACTIVE && t.start_time <= tick) {
-                    t.curr_prio = t.base_prio;
-                    enqueue_ready(&t);
-                }
-            }
+			switch (inst.opcode) {
+			case OP_COMPUTE:
+				sys_jiffies++;
+				current->pc++;
+				break;
+			case OP_LOCK:
+				if (likely(do_lock(current, inst.operand) == EOK))
+					current->pc++;
+				break;
+			case OP_UNLOCK:
+				do_unlock(current, inst.operand);
+				current->pc++;
+				break;
+			default:
+				break;
+			}
 
-            schedule();
-
-            if (!current_task) {
-                tick++;
-                continue;
-            }
-
-            Instruction& inst = current_task->instructions[current_task->pc];
-
-            switch (inst.op)
-            {
-            case OP_CACL:
-                tick++;
-                current_task->pc++;
-                break;
-            case OP_LOCK:
-                if (sys_lock(current_task, inst.val))
-                    current_task->pc++;
-                break;
-            case OP_UNLOCK:
-                sys_unlock(current_task, inst.val);
-                current_task->pc++;
-                break;
-            default:
-                break;
-            }
-
-            if (current_task->state == RUNNING
-            && current_task->pc >= current_task->instructions.size()) {
-                current_task->state = FINISHED;
-                current_task->finish_time = tick;
-                finished_count++;
-            }
-        }
-    }
+			/* Check task completion */
+			if (likely(current->state == TASK_RUNNING &&
+					   current->pc >= current->instructions.size())) {
+				current->state = TASK_FINISHED;
+				current->finish_time = sys_jiffies;
+				finished_count++;
+			}
+		}
+	}
 };
 
-// --- Main ---
-int main() {
-    FASTIO;
-    int T, R;
-    cin >> T >> R;
+/* ================================================================
+ * [Unit Test Framework]
+ * ================================================================ */
 
-    vector<Task> tasks(T);
-    vector<Resource> resources(R);
-    for (int i = 0; i < R; i++) {
-        resources[i].id = i + 1;
-        resources[i].owner_task = nullptr;
-        resources[i].prio_ceiling = 0; // 초기화
-    }
+#define KERNEL_TEST 0
+#if KERNEL_TEST
 
-    for (int i = 0; i < T; i++) {
-        Task& t = tasks[i];
-        t.id = i + 1;
-        t.state = INACTIVE; // 초기 상태
-        cin >> t.start_time >> t.base_prio;
-        t.curr_prio = t.base_prio;
+class kernel_test : public kernel {
+#define ASSERT_EQ(a, b, msg) \
+	if ((a) != (b)) { \
+		cerr << "[❌ FAIL] " << msg << " | Expected: " << (b) << ", Got: " << (a) << " (Line: " << __LINE__ << ")" << endl; \
+	} else { \
+		cout << "[✅ PASS] " << msg << endl; \
+	}
 
-        int inst_size; cin >> inst_size;
-        t.instructions.reserve(inst_size);
+#define ASSERT_TRUE(cond, msg) \
+	if (!(cond)) { \
+		cerr << "[❌ FAIL] " << msg << " (Line: " << __LINE__ << ")" << endl; \
+	} else { \
+		cout << "[✅ PASS] " << msg << endl; \
+	}
 
-        for (int k = 0; k < inst_size; k++) {
-            string in;
-            cin >> in;
-            char op = in[0];
-            int val = stoi(in.substr(1));
+public:
+	kernel_test(int T, vector<task_struct>& t, map<int, semaphore>& s) : kernel(T, t, s) {}
 
-            if (op == 'L') {
-                val--; // 0-based
-                t.instructions.push_back({op, val});
-                resources[val].prio_ceiling = max(resources[val].prio_ceiling, t.base_prio);
-            } else if (op == 'U') {
-                val--; // 0-based
-                t.instructions.push_back({op, val});
-            } else if (op == 'C') {
-                for(int m=0; m<val; m++) t.instructions.push_back({op, 1});
-            }
-        }
-    }
+	void run_all_tests(void) {
+		cout << "========== Kernel Unit Tests ==========\n";
+		test_enqueue_ready_guards();
+		test_schedule_state_transitions();
+		test_lock_ceiling_blocking();
+		test_priority_inheritance();
+		test_unlock_behavior();
+		cout << "========== End Unit Tests ==========\n";
+	}
 
-    Kernel kernel(T, tasks, resources);
-    kernel.run();
+private:
+	void test_enqueue_ready_guards(void) {
+		cout << "\n[Test 1] __enqueue_ready() protection logic\n";
+		ready_queue.clear();
+		task_struct t1; t1.pid = 1; t1.state = TASK_INACTIVE;
 
-    for (int i = 0; i < T; i++) {
-        cout << tasks[i].finish_time << endl;
-    }
+		__enqueue_ready(&t1);
+		ASSERT_EQ(1, ready_queue.size(), "INACTIVE task should be enqueued");
+		ASSERT_EQ(TASK_READY, t1.state, "Task state should be READY");
 
-    return 0;
+		__enqueue_ready(&t1);
+		ASSERT_EQ(1, ready_queue.size(), "Duplicate enqueue prevention");
+
+		t1.state = TASK_RUNNING;
+		__enqueue_ready(&t1);
+		ASSERT_EQ(1, ready_queue.size(), "RUNNING task should not be enqueued");
+	}
+
+	void test_schedule_state_transitions(void) {
+		cout << "\n[Test 2] __schedule() context switch logic\n";
+		ready_queue.clear();
+		task_struct t1; t1.pid = 1; t1.curr_prio = 10; t1.state = TASK_RUNNING;
+		task_struct t2; t2.pid = 2; t2.curr_prio = 5;  t2.state = TASK_READY;
+
+		current = &t1;
+		ready_queue.push_back(&t2);
+		__schedule();
+
+		ASSERT_TRUE(current != nullptr, "Current task should not vanish");
+		ASSERT_EQ(1, current->pid, "T1 (highest prio) should be scheduled");
+		ASSERT_EQ(1, ready_queue.size(), "T2 should remain in queue");
+
+		task_struct t3_blocked; t3_blocked.pid = 3; t3_blocked.curr_prio = 100; t3_blocked.state = TASK_BLOCKED;
+		current = &t3_blocked;
+		__schedule();
+
+		ASSERT_EQ(2, current->pid, "BLOCKED task should be evicted");
+		bool found = false;
+		for (task_struct* t : ready_queue) if (t->pid == 3) found = true;
+		ASSERT_TRUE(!found, "BLOCKED task should not be in ready_queue");
+	}
+
+	void test_lock_ceiling_blocking(void) {
+		cout << "\n[Test 3] do_lock() PCP ceiling rule\n";
+		wait_queue.clear();
+		task_struct t_owner; t_owner.pid = 1; t_owner.curr_prio = 5;
+		task_struct t_req;   t_req.pid = 2; t_req.curr_prio = 8;
+
+		semaphore s1; s1.id = 0; s1.prio_ceiling = 10; s1.owner_task = &t_owner;
+		semaphore s2; s2.id = 1; s2.prio_ceiling = 5;  s2.owner_task = nullptr;
+
+		semaphores.clear();
+		semaphores[0] = s1;
+		semaphores[1] = s2;
+
+		int ret = do_lock(&t_req, 1);
+
+		ASSERT_EQ(ESYSCALL_EBUSY, ret, "Lock should fail (prio <= ceiling)");
+		ASSERT_EQ(TASK_BLOCKED, t_req.state, "Task should be BLOCKED");
+		ASSERT_EQ(1, wait_queue.size(), "Task should be in wait_queue");
+		ASSERT_TRUE(t_owner.blocking_tasks.count(&t_req) > 0, "Blocking relationship must exist");
+
+		task_struct t_owner_req = t_owner;
+		int self_ret = do_lock(&t_owner_req, 1);
+		ASSERT_EQ(ESYSCALL_EBUSY, self_ret, "Ceiling owner blocked by system ceiling");
+	}
+
+	void test_priority_inheritance(void) {
+		cout << "\n[Test 4] __calc_inherited_prio() propagation\n";
+		task_struct low; low.pid = 1; low.base_prio = 2; low.curr_prio = 2;
+		task_struct mid; mid.pid = 2; mid.base_prio = 5; mid.curr_prio = 5;
+		task_struct high; high.pid = 3; high.base_prio = 10; high.curr_prio = 10;
+
+		mid.blocking_tasks.insert(&high);
+		low.blocking_tasks.insert(&mid);
+
+		__update_prio(&low);
+		__update_prio(&mid);
+
+		ASSERT_EQ(10, low.curr_prio, "Low task inherits high prio");
+		ASSERT_EQ(10, mid.curr_prio, "Mid task inherits high prio");
+	}
+
+	void test_unlock_behavior(void) {
+		cout << "\n[Test 5] do_unlock() waiter release\n";
+		ready_queue.clear();
+		wait_queue.clear();
+
+		task_struct t_owner; t_owner.pid = 1; t_owner.base_prio = 2; t_owner.curr_prio = 10;
+		task_struct t_wait;  t_wait.pid = 2; t_wait.base_prio = 10; t_wait.state = TASK_BLOCKED;
+
+		semaphore s1; s1.id = 0; s1.owner_task = &t_owner;
+		t_owner.held_semaphores.push_back(0);
+
+		semaphores.clear();
+		semaphores[0] = s1;
+		tasks = {t_owner, t_wait};
+
+		wait_queue.push_back(&t_wait);
+		t_owner.blocking_tasks.insert(&t_wait);
+
+		do_unlock(&t_owner, 0);
+
+		ASSERT_EQ(nullptr, semaphores[0].owner_task, "Semaphore owner should be NULL");
+		ASSERT_EQ(0, wait_queue.size(), "wait_queue should be empty");
+		ASSERT_EQ(1, ready_queue.size(), "T2 should move to ready_queue");
+		ASSERT_EQ(TASK_READY, ready_queue[0]->state, "T2 state should be READY");
+		ASSERT_EQ(2, tasks[0].curr_prio, "T1 prio should revert to base");
+	}
+};
+#undef ASSERT_EQ
+#undef ASSERT_TRUE
+
+#endif /* KERNEL_TEST */
+
+/* ================================================================
+ * [Main Entry Point]
+ * ================================================================ */
+
+int main(void) {
+	FASTIO;
+
+#if KERNEL_TEST
+	vector<task_struct> dummy_tasks;
+	map<int, semaphore> dummy_semaphores;
+	kernel_test tester(0, dummy_tasks, dummy_semaphores);
+	tester.run_all_tests();
+#endif
+
+	int T, R;
+	cin >> T >> R;
+
+	vector<task_struct> tasks(T);
+	map<int, semaphore> semaphores;
+
+	/* Initialize semaphore table */
+	for (int i = 0; i < R; i++) {
+		semaphore s;
+		s.id = i;
+		s.owner_task = nullptr;
+		s.prio_ceiling = 0;
+		semaphores[i] = s;
+	}
+
+	/* Load tasks */
+	for (int i = 0; i < T; i++) {
+		task_struct& t = tasks[i];
+		t.pid = i + 1;
+		t.state = TASK_INACTIVE;
+		cin >> t.start_time >> t.base_prio;
+		t.curr_prio = t.base_prio;
+
+		int inst_size;
+		cin >> inst_size;
+		t.instructions.reserve(inst_size);
+
+		for (int k = 0; k < inst_size; k++) {
+			char op;
+			int val;
+			cin >> op >> val;
+
+			if (op == 'L') {
+				val--;		/* 0-indexed */
+				t.instructions.push_back({OP_LOCK, val});
+				semaphores[val].prio_ceiling = max(semaphores[val].prio_ceiling, t.base_prio);
+			} else if (op == 'U') {
+				val--;		/* 0-indexed */
+				t.instructions.push_back({OP_UNLOCK, val});
+			} else if (op == 'C') {
+				for (int m = 0; m < val; m++)
+					t.instructions.push_back({OP_COMPUTE, 1});
+			}
+		}
+	}
+
+	/* Execute kernel */
+	kernel rtos_kernel(T, tasks, semaphores);
+	rtos_kernel.kernel_main();
+
+	/* Output results */
+	for (int i = 0; i < T; i++) {
+		cout << tasks[i].finish_time << endl;
+	}
+
+	return 0;
 }
