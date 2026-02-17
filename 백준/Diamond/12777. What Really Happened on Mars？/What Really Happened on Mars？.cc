@@ -4,7 +4,7 @@
 using namespace std;
 
 #define endl '\n'
-#define FASTIO ios::sync_with_stdio(0), cin.tie(0)
+#define FASTIO ios::sync_with_stdio(0), cin.tie(0), cout.tie(0)
 
 /* Architecture-specific macros */
 #ifndef likely
@@ -45,7 +45,7 @@ enum instr_opcode_t {
 };
 
 /* Debug macros */
-#define KERNEL_DBG 0
+#define KERNEL_DBG 1
 #if KERNEL_DBG
 #define kprintk(fmt, ...) printf("[%s:%d] " fmt, __func__, __LINE__, ##__VA_ARGS__)
 #else
@@ -161,7 +161,8 @@ public:
 
 	/* ----- Queue Management ----- */
 	void __enqueue_ready(task_struct* tsk) {
-		if (unlikely(tsk->state == TASK_READY || tsk->state == TASK_RUNNING)) return;
+		/* Prevent duplicate enqueue of already-ready tasks */
+		if (unlikely(tsk->state == TASK_READY)) return;
 		tsk->state = TASK_READY;
 		ready_queue.push_back(tsk);
 	}
@@ -174,17 +175,20 @@ public:
 	void __schedule(void) {
 		if (likely(current)) {
 			if (current->state == TASK_RUNNING) {
-				current->state = TASK_INACTIVE;
+				/* Preempted task goes to ready queue (__enqueue_ready sets state to READY) */
 				__enqueue_ready(current);
 			}
 			current = nullptr;
 		}
 		if (unlikely(ready_queue.empty())) return;
 
-		auto best_it = max_element(ready_queue.begin(), ready_queue.end(),
-			[](task_struct* a, task_struct* b) {
-				return a->curr_prio < b->curr_prio;
-			});
+		auto best_it = ready_queue.begin();
+		for (auto it = ready_queue.begin(); it != ready_queue.end(); ++it) {
+			task_struct* tsk = *it;
+			task_struct* best = *best_it;
+			if (tsk->curr_prio > best->curr_prio)
+				best_it = it;
+		}
 
 		current = *best_it;
 		ready_queue.erase(best_it);
@@ -194,22 +198,20 @@ public:
 	/* ----- System Calls (IPC) ----- */
 	int do_lock(task_struct* tsk, int sem_id) {
 		semaphore& sem = semaphores[sem_id];
-		/* Early check: if semaphore already locked, fail immediately */
-		if (likely(sem.owner_task)) {
-			__enqueue_wait_queue(tsk);
-			sem.owner_task->blocking_tasks.insert(tsk);
-			__update_prio(sem.owner_task);
-			return ESYSCALL_EBUSY;
-		}
-
-		/* Only compute ceiling if semaphore is free */
 		auto [sys_ceil, sys_ceil_owner] = __get_sys_ceiling();
 
-		/* Check system ceiling constraint */
-		if (unlikely(sys_ceil_owner && sys_ceil_owner != tsk && tsk->curr_prio <= sys_ceil)) {
+		task_struct* blocker = nullptr;
+		if (likely(sem.owner_task)) {
+			blocker = sem.owner_task;
+		} else if (unlikely(sys_ceil_owner && sys_ceil_owner != tsk)) {
+			if (tsk->curr_prio <= sys_ceil)
+				blocker = sys_ceil_owner;
+		}
+
+		if (unlikely(blocker)) {
 			__enqueue_wait_queue(tsk);
-			sys_ceil_owner->blocking_tasks.insert(tsk);
-			__update_prio(sys_ceil_owner);
+			blocker->blocking_tasks.insert(tsk);
+			__update_prio(blocker);
 			return ESYSCALL_EBUSY;
 		}
 
@@ -224,15 +226,12 @@ public:
 		if (likely(!tsk->held_semaphores.empty()))
 			tsk->held_semaphores.pop_back();
 
-		/* Clear blocking relationships for all tasks that were in wait_queue */
 		for (auto& t: tasks) t.blocking_tasks.clear();
+		for (auto& t: tasks) __update_prio(&t);
 
-		/* Enqueue waiting tasks and update all priorities */
 		for (task_struct* t: wait_queue)
 			__enqueue_ready(t);
 		wait_queue.clear();
-
-		for (auto& t: tasks) __update_prio(&t);
 	}
 
 	/* ----- Kernel Main Loop ----- */
@@ -287,7 +286,7 @@ public:
  * [Unit Test Framework]
  * ================================================================ */
 
-#define KERNEL_TEST 0
+#define KERNEL_TEST 1
 #if KERNEL_TEST
 
 class kernel_test : public kernel {
@@ -331,32 +330,40 @@ private:
 		__enqueue_ready(&t1);
 		ASSERT_EQ(1, ready_queue.size(), "Duplicate enqueue prevention");
 
-		t1.state = TASK_RUNNING;
-		__enqueue_ready(&t1);
-		ASSERT_EQ(1, ready_queue.size(), "RUNNING task should not be enqueued");
+		task_struct t2; t2.pid = 2; t2.state = TASK_RUNNING;
+		__enqueue_ready(&t2);
+		ASSERT_EQ(2, ready_queue.size(), "RUNNING task can be enqueued (state changes to READY)");
 	}
 
 	void test_schedule_state_transitions(void) {
 		cout << "\n[Test 2] __schedule() context switch logic\n";
 		ready_queue.clear();
-		task_struct t1; t1.pid = 1; t1.curr_prio = 10; t1.state = TASK_RUNNING;
-		task_struct t2; t2.pid = 2; t2.curr_prio = 5;  t2.state = TASK_READY;
+		task_struct t1; t1.pid = 1; t1.curr_prio = 5;  t1.state = TASK_RUNNING;
+		task_struct t2; t2.pid = 2; t2.curr_prio = 8;  t2.state = TASK_READY;
+		task_struct t3; t3.pid = 3; t3.curr_prio = 3;  t3.state = TASK_READY;
 
 		current = &t1;
 		ready_queue.push_back(&t2);
+		ready_queue.push_back(&t3);
+
+		/* Before __schedule: ready_queue=[t2(prio=8), t3(prio=3)], current=t1(prio=5, RUNNING) */
+		/* __schedule: t1(RUNNING)->__enqueue_ready->READY->queue (back), select max prio */
+		/* After: current should be t2 (prio=8 > t1=5 > t3=3), queue=[t1, t3] */
 		__schedule();
 
 		ASSERT_TRUE(current != nullptr, "Current task should not vanish");
-		ASSERT_EQ(1, current->pid, "T1 (highest prio) should be scheduled");
-		ASSERT_EQ(1, ready_queue.size(), "T2 should remain in queue");
+		ASSERT_EQ(2, current->pid, "T2 (highest prio=8) should be scheduled");
+		ASSERT_EQ(2, ready_queue.size(), "T1 and T3 should remain in queue");
 
-		task_struct t3_blocked; t3_blocked.pid = 3; t3_blocked.curr_prio = 100; t3_blocked.state = TASK_BLOCKED;
-		current = &t3_blocked;
+		/* Test: blocked task eviction */
+		task_struct t4; t4.pid = 4; t4.curr_prio = 100; t4.state = TASK_BLOCKED;
+		current = &t4;
 		__schedule();
 
-		ASSERT_EQ(2, current->pid, "BLOCKED task should be evicted");
+		/* BLOCKED task should not enqueue, select max from ready_queue */
+		ASSERT_EQ(1, current->pid, "BLOCKED task evicted, T1(prio=5 > T3=3) selected");
 		bool found = false;
-		for (task_struct* t : ready_queue) if (t->pid == 3) found = true;
+		for (task_struct* t : ready_queue) if (t->pid == 4) found = true;
 		ASSERT_TRUE(!found, "BLOCKED task should not be in ready_queue");
 	}
 
@@ -380,9 +387,9 @@ private:
 		ASSERT_EQ(1, wait_queue.size(), "Task should be in wait_queue");
 		ASSERT_TRUE(t_owner.blocking_tasks.count(&t_req) > 0, "Blocking relationship must exist");
 
-		task_struct t_owner_req = t_owner;
-		int self_ret = do_lock(&t_owner_req, 1);
-		ASSERT_EQ(ESYSCALL_EBUSY, self_ret, "Ceiling owner blocked by system ceiling");
+		/* PCP Exception Rule: System ceiling owner is exempt from ceiling constraint */
+		int self_ret = do_lock(&t_owner, 1);
+		ASSERT_EQ(EOK, self_ret, "System ceiling owner is exempt from ceiling block");
 	}
 
 	void test_priority_inheritance(void) {
@@ -406,26 +413,36 @@ private:
 		ready_queue.clear();
 		wait_queue.clear();
 
-		task_struct t_owner; t_owner.pid = 1; t_owner.base_prio = 2; t_owner.curr_prio = 10;
-		task_struct t_wait;  t_wait.pid = 2; t_wait.base_prio = 10; t_wait.state = TASK_BLOCKED;
+		/* First, populate tasks vector, then use vector addresses */
+		tasks.clear();
+		tasks.push_back(task_struct(1, TASK_RUNNING));
+		tasks.push_back(task_struct(2, TASK_BLOCKED));
 
-		semaphore s1; s1.id = 0; s1.owner_task = &t_owner;
-		t_owner.held_semaphores.push_back(0);
+		task_struct* pt_owner = &tasks[0];
+		task_struct* pt_wait = &tasks[1];
+
+		pt_owner->base_prio = 2;
+		pt_owner->curr_prio = 10;
+		pt_wait->base_prio = 10;
+
+		semaphore s1;
+		s1.id = 0;
+		s1.owner_task = pt_owner;
+		pt_owner->held_semaphores.push_back(0);
 
 		semaphores.clear();
 		semaphores[0] = s1;
-		tasks = {t_owner, t_wait};
 
-		wait_queue.push_back(&t_wait);
-		t_owner.blocking_tasks.insert(&t_wait);
+		wait_queue.push_back(pt_wait);
+		pt_owner->blocking_tasks.insert(pt_wait);
 
-		do_unlock(&t_owner, 0);
+		do_unlock(pt_owner, 0);
 
 		ASSERT_EQ(nullptr, semaphores[0].owner_task, "Semaphore owner should be NULL");
 		ASSERT_EQ(0, wait_queue.size(), "wait_queue should be empty");
 		ASSERT_EQ(1, ready_queue.size(), "T2 should move to ready_queue");
 		ASSERT_EQ(TASK_READY, ready_queue[0]->state, "T2 state should be READY");
-		ASSERT_EQ(2, tasks[0].curr_prio, "T1 prio should revert to base");
+		ASSERT_EQ(2, pt_owner->curr_prio, "T1 prio should revert to base");
 	}
 };
 #undef ASSERT_EQ
@@ -475,9 +492,10 @@ int main(void) {
 		t.instructions.reserve(inst_size);
 
 		for (int k = 0; k < inst_size; k++) {
-			char op;
-			int val;
-			cin >> op >> val;
+			string in;
+			cin >> in;
+			char op = in[0];
+			int val = stoi(in.substr(1));
 
 			if (op == 'L') {
 				val--;		/* 0-indexed */
